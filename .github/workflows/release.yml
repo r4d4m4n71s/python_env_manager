@@ -1,0 +1,97 @@
+name: Release Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Required for bump2version to work properly
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Load cached dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build bump2version pytest
+        pip install -e .[dev]
+
+    - name: Run Tests
+      run: |
+        echo "🧪 Running tests..."
+        pytest
+        if [ $? -ne 0 ]; then
+          echo "❌ Tests failed - Release process aborted"
+          exit 1
+        fi
+        echo "✅ All tests passed"
+
+    - name: Configure Git
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+
+    - name: Version Management for Production
+      if: ${{ github.ref == 'refs/heads/main' }}
+      run: |
+        bump2version patch --config-file .bumpversion.cfg
+        git push
+        git push --tags
+
+    - name: Version Management for Beta
+      if: ${{ github.ref != 'refs/heads/main' }}
+      run: |
+        # For beta releases, we append beta suffix to version
+        bump2version patch --config-file .bumpversion.cfg --new-version $(bump2version --dry-run patch --list | grep current_version | sed s,"^.*=",,).beta
+        git push
+        git push --tags
+
+    - name: Build Package
+      run: |
+        python -m build
+
+    - name: Create Distribution Directory
+      run: |
+        mkdir -p distribution/release
+        mkdir -p distribution/beta
+
+    - name: Move Artifacts to Appropriate Directory
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          mv dist/* distribution/release/
+        else
+          mv dist/* distribution/beta/
+        fi
+
+    - name: Upload Production Artifacts
+      if: ${{ github.ref == 'refs/heads/main' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: production-release
+        path: distribution/release
+        if-no-files-found: error
+
+    - name: Upload Beta Artifacts
+      if: ${{ github.ref != 'refs/heads/main' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: beta-release
+        path: distribution/beta
+        if-no-files-found: error
