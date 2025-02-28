@@ -30,6 +30,23 @@ A powerful, cross-platform tool for managing Python virtual environments with a 
 pip install python-env-manager
 ```
 
+### Package Name vs Import Name
+
+Note the difference between the package name and import name:
+
+- **Package name** (for installation): `python-env-manager`
+  ```bash
+  pip install python-env-manager
+  ```
+
+- **Import name** (in Python code): `env_manager`
+  ```python
+  import env_manager
+  from env_manager import EnvManager
+  ```
+
+This is standard Python behavior where hyphens in package names are converted to underscores when importing.
+
 ## 🚀 Quick Start
 
 ### Simple Command Execution
@@ -37,27 +54,23 @@ pip install python-env-manager
 This example demonstrates the basic workflow for managing a virtual environment and running commands within it.
 
 ```python
+# Import the package (note the underscore in the import name)
 from env_manager import EnvManager
 
-# Create a reference to a virtual environment
-# If the environment doesn't exist, it will be created automatically
+# Create a virtual environment (creates if it doesn't exist)
 env = EnvManager("my_project_env")
 
-# Run commands in the environment - each command runs in the context of the virtual environment
-# Install a package without explicitly activating the environment
-env.run("pip", "install", "requests")  # Isolated from your system Python packages
+# Install a package in the isolated environment
+env.run("pip", "install", "requests")
 
-# Execute Python code with access to installed packages
-# The -c flag allows running Python code directly from the command line
+# Run Python code using the installed package
 env.run("python", "-c", "import requests; print('Requests version:', requests.__version__)")
 
-# Run a Python script with command-line arguments
-# All imports in my_script.py will use packages from this environment
+# Run a script with arguments
 env.run("python", "my_script.py", "--arg1", "value1")
 
-# Clean up by removing the environment when no longer needed
-# This deletes the entire virtual environment directory
-env.remove()  # Optional - only use when you want to delete the environment
+# Remove the environment when done
+env.remove()
 ```
 
 ### 🛠️ Creating a Custom Environment
@@ -67,20 +80,16 @@ Configure your virtual environment with specific options to meet your project re
 ```python
 from env_manager import EnvManager
 
-# Create a new virtual environment at the specified path
-# If the path doesn't exist, directories will be created automatically
-env_manager = EnvManager("path/to/venv")  # Uses default settings
+# Create with default settings
+env_manager = EnvManager("path/to/venv")
 
-# For advanced use cases, create with custom options using Python's built-in EnvBuilder
+# For advanced use cases with custom options
 from venv import EnvBuilder
 
-# Configure a custom environment builder with specific options:
-# - system_site_packages=True: Gives access to system-installed packages
-# - with_pip=True: Ensures pip is installed in the new environment
+# Configure with system packages access and pip
 custom_builder = EnvBuilder(system_site_packages=True, with_pip=True)
 
-# Create environment with the custom configuration
-# This provides more control over the environment creation process
+# Create environment with custom configuration
 env_manager = EnvManager("path/to/venv", env_builder=custom_builder)
 ```
 
@@ -91,25 +100,21 @@ Execute various types of commands within your virtual environment with full cont
 ```python
 env = EnvManager("path/to/venv")
 
-# Package management commands - isolated from your system Python
-# Install a specific package in the virtual environment
+# Install a package
 env.run("pip", "install", "requests")
 
-# List all installed packages in the environment
-env.run("pip", "list")  # Shows only packages in this environment
+# List installed packages
+env.run("pip", "list")
 
-# Execute Python scripts with arguments
-# The script runs with access to all packages installed in this environment
+# Run a script with arguments
 env.run("python", "my_script.py", "--arg1", "value1")
 
-# Run inline Python code for quick tests or operations
-# Useful for debugging or simple operations without creating a separate file
+# Run inline Python code
 env.run("python", "-c", "print('Hello from virtual environment!')")
 
-# Capture command output for programmatic use
-# capture_output=True returns a CompletedProcess object with stdout and stderr
+# Capture command output
 result = env.run("python", "--version", capture_output=True)
-print(f"Python version: {result.stdout}")  # Access the captured standard output
+print(f"Python version: {result.stdout}")
 ```
 
 ### 🖥️ Working with Local Python
@@ -117,14 +122,11 @@ print(f"Python version: {result.stdout}")  # Access the captured standard output
 For cases when you need to use the system Python installation instead of a virtual environment.
 
 ```python
-# Create an environment manager that uses the system Python
-# Setting path=None tells EnvManager to use the current Python interpreter
-local_env = EnvManager(path=None)  # No isolation - uses system packages
+# Use the system Python installation
+local_env = EnvManager(path=None)
 
-# Use a context manager for clean activation/deactivation
+# Run commands with system Python
 with local_env:
-    # Run commands with the system Python installation
-    # This prints the path to the system Python executable
     local_env.run("python", "-c", "import sys; print(sys.executable)")
 ```
 
@@ -148,43 +150,30 @@ Three different ways to activate and use your virtual environments based on your
 from env_manager import EnvManager
 
 # Method 1: Explicit activation/deactivation
-# Use this approach when you need fine-grained control over when the environment is active
 env = EnvManager(".some_env")
 
-# Explicitly activate the environment
-# This sets up environment variables and Python paths
+# Activate the environment
 env.activate()
 
-# Now the environment is active and you can:
-# - Run Python scripts with packages from this environment
-# - Install packages that will be isolated to this environment
-# - Use command-line tools installed in this environment
+# Run commands in the active environment
 result = env.run("python", "-c", "import sys; print(sys.executable)")
-print(result.stdout)  # Shows Python executable from the virtual environment
+print(result.stdout)
 
-# When finished, explicitly deactivate the environment
-# This restores the original environment state
+# Deactivate when finished
 env.deactivate()
 
 # Method 2: Context manager (recommended) ✨
-# Use this approach for automatic activation/deactivation
-# The environment is automatically activated when entering the context
-# and deactivated when exiting, even if exceptions occur
 with EnvManager(".venv") as venv:
-    # Environment is now active
-    # All operations here use the virtual environment
+    # Environment automatically activated
     venv.run("pip", "install", "requests")
     venv.run("python", "my_script.py")
     
-    # Check if environment is active
     if venv.is_active():
         print("Environment is active!")
-# Environment is automatically deactivated when exiting the context
+# Automatically deactivated when exiting
 
 # Method 3: Implicit activation for single commands
-# The run() method automatically uses the environment for that specific command
-# without requiring explicit activation
-EnvManager(".some_env").run("python", "script.py")  # Environment used just for this command
+EnvManager(".some_env").run("python", "script.py")
 ```
 
 ### 🌟 Best Practices for Environment Activation
@@ -211,18 +200,14 @@ Efficiently manage packages in your virtual environments with permanent or tempo
 
 ```python
 with EnvManager("path/to/venv") as env:
-    # Install a package permanently in the environment
-    # This package will remain available until explicitly uninstalled
+    # Install a permanent package
     env.run("pip", "install", "requests")
     
-    # Install a package temporarily using the specialized context manager
-    # Perfect for testing or one-time use of a package
+    # Install a temporary package
     with env.install_pkg("beautifulsoup4"):
-        # The package is available only within this context block
-        # Use the temporarily installed package
+        # Use the package
         env.run("python", "-c", "import bs4; print(bs4.__version__)")
-    # beautifulsoup4 is automatically uninstalled when exiting the context
-    # This keeps your environment clean and prevents dependency conflicts
+    # Package is automatically uninstalled here
 ```
 
 ### 🗑️ Environment Removal
@@ -230,25 +215,19 @@ with EnvManager("path/to/venv") as env:
 Clean up resources by removing environments when they're no longer needed.
 
 ```python
-# Create a reference to an existing environment
+# Reference an existing environment
 env_manager = EnvManager("path/to/venv")
 
-# Use the environment for various tasks
-# ...
-
-# When the environment is no longer needed, remove it completely
-# This deletes the entire directory and all installed packages
+# Remove the environment
 env_manager.remove()
 
-# You can also use this pattern for temporary environments:
+# Pattern for temporary environments
 temp_env = EnvManager("temp_env")
 try:
-    # Use the temporary environment
     temp_env.run("pip", "install", "requests")
     temp_env.run("python", "script.py")
 finally:
-    # Always clean up, even if an exception occurs
-    temp_env.remove()
+    temp_env.remove()  # Always cleaned up
 ```
 
 ## 📚 API Reference
@@ -261,9 +240,9 @@ The main class for creating and managing Python virtual environments.
 
 ```python
 EnvManager(
-    path: Optional[str] = None,  # Path to the virtual environment
-    clear: bool = False,         # Whether to clear existing environment
-    env_builder: Optional[EnvBuilder] = None,  # Custom environment builder
+    path: Optional[str] = None,  # Environment path
+    clear: bool = False,         # Clear if exists
+    env_builder: Optional[EnvBuilder] = None,  # Custom builder
     logger: Optional[logging.Logger] = None    # Custom logger
 )
 ```
@@ -271,16 +250,16 @@ EnvManager(
 **Parameters:**
 - `path`: Path to the virtual environment. If `None`, uses the current Python environment.
 - `clear`: Whether to clear the environment directory if it already exists.
-- `env_builder`: Custom EnvBuilder instance for environment creation with specific options.
-- `logger`: Custom logger for the environment manager to control logging behavior.
+- `env_builder`: Custom EnvBuilder instance for environment creation.
+- `logger`: Custom logger for the environment manager.
 
 **Methods:**
-- `activate()`: Activate the environment by setting up environment variables and paths.
-- `deactivate()`: Deactivate the environment and restore original environment state.
-- `run(*cmd_args, **kwargs)`: Run a command in the environment with specified arguments.
-- `install_pkg(package)`: Install a package temporarily (returns a context manager).
-- `remove()`: Remove the virtual environment completely from the filesystem.
-- `is_active()`: Check if the environment is currently active.
+- `activate()`: Activate the environment.
+- `deactivate()`: Deactivate the environment.
+- `run(*cmd_args, **kwargs)`: Run a command in the environment.
+- `install_pkg(package)`: Install a package temporarily.
+- `remove()`: Remove the virtual environment.
+- `is_active()`: Check if the environment is active.
 
 ### 🏗️ Environment Class
 
@@ -288,24 +267,21 @@ Represents a Python environment with information about its structure and propert
 
 ```python
 Environment(
-    path: Optional[str] = None,  # Path to the environment
-    **kwargs                     # Additional configuration options
+    path: Optional[str] = None,  # Environment path
+    **kwargs                     # Additional options
 )
 ```
 
 **Attributes:**
-- `root`: Root directory of the environment (absolute path).
-- `bin`: Directory containing executables (`bin` on Unix, `Scripts` on Windows).
-- `lib`: Directory containing libraries and installed packages.
-- `python`: Path to the Python executable within this environment.
-- `name`: Environment name derived from the directory name.
-- `is_virtual`: Boolean indicating whether the environment is a virtual environment.
+- `root`: Root directory of the environment.
+- `bin`: Directory containing executables.
+- `lib`: Directory containing libraries.
+- `python`: Path to the Python executable.
+- `name`: Environment name.
+- `is_virtual`: Whether the environment is a virtual environment.
 
-**Methods:**
-- `get_site_packages()`: Returns the path to the site-packages directory.
-- `get_python_version()`: Returns the Python version used in this environment.
 
-## 🌟 Real-World Examples
+## 🌟 Examples
 
 Practical examples demonstrating how to use Python Environment Manager in various scenarios.
 
@@ -316,26 +292,20 @@ Create isolated environments for data analysis projects with specific package re
 ```python
 from env_manager import EnvManager
 
-# Create a dedicated data science environment with all necessary tools
+# Create a data science environment
 with EnvManager("path/to/data_science_env") as env:
-    # Install the data science stack with a single command
-    # Each package is isolated to this environment only
+    # Install data science packages
     env.run("pip", "install", "numpy", "pandas", "matplotlib", "scikit-learn")
     
-    # Run a data analysis script with command-line arguments
-    # All imports in the script will use the packages from this environment
+    # Run analysis script
     env.run("python", "analyze_data.py", "--input", "data.csv", "--output", "results.csv")
     
-    # Execute multi-line Python code directly for quick visualization
-    # This is useful for one-off analysis without creating separate files
+    # Generate visualization
     env.run("python", "-c", """
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# Load the processed data
 data = pd.read_csv('results.csv')
-
-# Create a visualization
 plt.figure(figsize=(10, 6))
 plt.plot(data['x'], data['y'])
 plt.title('Analysis Results')
@@ -353,32 +323,28 @@ from env_manager import EnvManager
 import shutil
 import os
 
-# Define the versions you want to test against
+# Define versions to test
 versions = ["1.0.0", "1.1.0", "2.0.0"]
 
-# Iterate through each version and run tests in isolated environments
 for version in versions:
-    # Create a unique environment name for each version
+    # Create unique environment name
     env_path = f"test_env_{version.replace('.', '_')}"
     
-    # Ensure a clean environment for each test run
+    # Clean previous environment if exists
     if os.path.exists(env_path):
         shutil.rmtree(env_path)
     
-    # Create and use a fresh environment for this version
+    # Create fresh environment
     with EnvManager(env_path) as env:
-        # Install the specific version of the package
+        # Install specific version
         env.run("pip", "install", f"package=={version}")
         
-        # Run the test suite and capture results
+        # Run tests
         result = env.run("pytest", "tests/", capture_output=True)
         
-        # Report test results for this version
+        # Show results
         print(f"Test results for version {version}:")
         print(result.stdout)
-        
-        # The environment will be automatically deactivated when exiting the context
-        # You could also add env.remove() here if you want to clean up immediately
 ```
 
 ### 🌐 Example 3: Web Development Project
@@ -388,28 +354,22 @@ Set up and manage a complete web development environment with database migration
 ```python
 from env_manager import EnvManager
 
-# Create a dedicated environment for your web project
+# Create web project environment
 with EnvManager("web_project_env") as env:
-    # Install the web framework and all required dependencies
-    # These packages are isolated from your system Python
+    # Install web framework and dependencies
     env.run("pip", "install", "flask", "flask-sqlalchemy", "flask-migrate")
     
-    # Set up the database with Flask-Migrate
-    # Initialize the migration repository
+    # Initialize database
     env.run("flask", "db", "init")
     
-    # Create the initial migration
+    # Create migration
     env.run("flask", "db", "migrate", "-m", "Initial migration")
     
-    # Apply the migration to the database
+    # Apply migration
     env.run("flask", "db", "upgrade")
     
-    # Run the development server with debug mode enabled
-    # The server will automatically reload when code changes
+    # Run development server
     env.run("flask", "run", "--debug")
-    
-    # When the context exits, the environment is deactivated
-    # but remains available for future use
 ```
 
 ## 📦 Requirements
@@ -458,8 +418,8 @@ of this software and associated documentation files.
 <div align="center">
   <p>Made with ❤️ by the Python Environment Manager team</p>
   <p>
-    <a href="https://github.com/yourusername/python-env-manager">GitHub</a> •
+    <a href="https://github.com/r4d4m4n71s/Python-env_manager">GitHub</a> •
     <a href="https://pypi.org/project/python-env-manager/">PyPI</a> •
-    <a href="https://python-env-manager.readthedocs.io/">Documentation</a>
+    <a href="https://github.com/r4d4m4n71s/Python-env_manager/blob/main/README.md">Documentation</a>
   </p>
 </div>
