@@ -385,13 +385,13 @@ class TestEnvManager:
              mock.patch.dict(os.environ, {}, clear=True), \
              mock.patch("sys.path", []):
             
-            # Mock PATH setting to raise an exception
-            def mock_setitem(key, value):
+            # Mock os.environ to raise an exception when updating PATH
+            def mock_environ_get(key, default=None):
                 if key == "PATH":
                     raise Exception("Activation failed")
-                os.environ.__dict__[key] = value
+                return default
             
-            with mock.patch.object(os.environ, "__setitem__", side_effect=mock_setitem), \
+            with mock.patch.object(os.environ, "get", side_effect=mock_environ_get), \
                  pytest.raises(RuntimeError, match="Failed to activate environment"):
                 manager.activate()
             
