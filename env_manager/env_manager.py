@@ -67,7 +67,8 @@ class Environment:
                 r"(Ana|Mini)conda3"
             ],
             "posix": [  # Unix patterns
-                r"/usr/(local/)?bin$",
+                r"/usr(/local)?$",
+                r"/usr(/local)?/bin$",
                 r"/opt/homebrew/bin$",
                 r"/Library/Frameworks/Python\.framework",
                 r"/(ana|mini)conda3?/bin$"
@@ -117,7 +118,8 @@ class EnvManager:
         if not self.env_builder:
             self.env_builder = EnvBuilder(
                 system_site_packages=False,
-                clear=clear,
+                #avoid error overwriting to true when active env and clear is.
+                clear= True if self.is_active() and not clear else clear,
                 with_pip=True,
                 upgrade_deps=True
             )
@@ -171,7 +173,13 @@ class EnvManager:
                     shell_cmd = f'"{activate_script}" && {" ".join(cmd_list)}'
                     kwargs['shell'] = True
                 else:
-                    shell_cmd = f'source "{activate_script}" && {" ".join(cmd_list)}'
+                    # Handle Python -c command specifically to ensure proper quoting
+                    if len(cmd_list) >= 2 and cmd_list[0] == "python" and cmd_list[1] == "-c":
+                        # Combine all remaining arguments into a single quoted Python code string
+                        python_code = " ".join(cmd_list[2:])
+                        shell_cmd = f'source "{activate_script}" && python -c "{python_code}"'
+                    else:
+                        shell_cmd = f'source "{activate_script}" && {" ".join(cmd_list)}'
                     kwargs['executable'] = '/bin/bash'
                     kwargs['shell'] = True
             else:
