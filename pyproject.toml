@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A powerful, cross-platform tool for managing Python virtual environments with a clean, intuitive API."
 readme = "README.md"
 authors = [
-    {name = "Python Environment Manager Contributors", email = "example@example.com"}
+    {name = "r4d4m4n71s"}
 ]
 license = {file = "LICENSE"}
 classifiers = [
