@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import logging
 import pytest
+import time
 from pathlib import Path
 from env_manager import EnvManager, Environment, InstallPkgContextManager
 
@@ -27,20 +28,11 @@ class TestEnvManagerIntegration:
         return logger
     
     @pytest.fixture
-    def temp_env_path(self, tmp_path):
+    def temp_env_path(self, tmp_path, test_logger):
         """Create a temporary directory for virtual environment."""
         env_path = tmp_path / ".venv"
         env_path.mkdir(exist_ok=True)
-        yield env_path
-        # Cleanup
-        try:
-            if env_path.exists():
-                shutil.rmtree(env_path)
-            if tmp_path.exists() and not any(tmp_path.iterdir()):
-                shutil.rmtree(tmp_path)
-        except Exception as e:
-            pytest.fail(f"Failed to cleanup test environment: {str(e)}")
-            
+  
     @pytest.fixture
     def env_manager(self, temp_env_path, test_logger):
         """Create EnvManager instance with temporary path."""
@@ -118,38 +110,34 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
 '''
         script_path.write_text(script_content)
         
-        try:
-            with env_manager:
-                # Execute the script
-                result = env_manager.run("python", str(script_path), capture_output=True)
-                
-                # Verify environment is correctly used
-                env_root = os.path.abspath(env_manager.env.root)
-                # Normalize path separators for cross-platform comparison
-                normalized_stdout = result.stdout.replace('\\', '/')
-                normalized_env_root = env_root.replace('\\', '/')
-                assert normalized_env_root in normalized_stdout
-                
-                # Test different run options
-                result = env_manager.run("python", "--version", capture_output=True)
-                assert "Python" in result.stdout
-                
-                # Test with check=False
-                result = env_manager.run(
-                    "python", "-c", "import sys; sys.exit(1)",
-                    capture_output=True, check=False
-                )
-                assert result.returncode == 1
-                
-                # Test with text=False
-                result = env_manager.run(
-                    "python", "-c", "print('hello')",
-                    capture_output=True, text=False
-                )
-                assert isinstance(result.stdout, bytes)
-        finally:
-            if script_path.exists():
-                script_path.unlink()
+        with env_manager:
+            # Execute the script
+            result = env_manager.run("python", str(script_path), capture_output=True)
+            
+            # Verify environment is correctly used
+            env_root = os.path.abspath(env_manager.env.root)
+            # Normalize path separators for cross-platform comparison
+            normalized_stdout = result.stdout.replace('\\', '/')
+            normalized_env_root = env_root.replace('\\', '/')
+            assert normalized_env_root in normalized_stdout
+            
+            # Test different run options
+            result = env_manager.run("python", "--version", capture_output=True)
+            assert "Python" in result.stdout
+            
+            # Test with check=False
+            result = env_manager.run(
+                "python", "-c", "import sys; sys.exit(1)",
+                capture_output=True, check=False
+            )
+            assert result.returncode == 1
+            
+            # Test with text=False
+            result = env_manager.run(
+                "python", "-c", "print('hello')",
+                capture_output=True, text=False
+            )
+            assert isinstance(result.stdout, bytes)        
     
     def test_error_handling(self, env_manager):
         """Test error handling in various scenarios."""
@@ -169,33 +157,27 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
         env2_path = tmp_path / "env2"
         env1_path.mkdir(exist_ok=True)
         env2_path.mkdir(exist_ok=True)
+                
+        env1 = EnvManager(path=str(env1_path), logger=test_logger)
+        env2 = EnvManager(path=str(env2_path), logger=test_logger)
         
-        try:
-            env1 = EnvManager(path=str(env1_path), logger=test_logger)
-            env2 = EnvManager(path=str(env2_path), logger=test_logger)
-            
-            # Install different packages in each environment
-            with env1:
-                env1.run("pip", "install", "setuptools", capture_output=True)
-            
-            with env2:
-                env2.run("pip", "install", "wheel", capture_output=True)
-            
-            # Verify environments remain separate
-            with env1:
-                result = env1.run("pip", "list", capture_output=True)
-                assert "setuptools" in result.stdout
-                assert "wheel" not in result.stdout
-            
-            with env2:
-                result = env2.run("pip", "list", capture_output=True)
-                assert "wheel" in result.stdout
-                assert "setuptools" not in result.stdout
-        finally:
-            # Cleanup
-            for path in [env1_path, env2_path]:
-                if path.exists():
-                    shutil.rmtree(path)
+        # Install different packages in each environment
+        with env1:
+            env1.run("pip", "install", "setuptools", capture_output=True)
+        
+        with env2:
+            env2.run("pip", "install", "wheel", capture_output=True)
+        
+        # Verify environments remain separate
+        with env1:
+            result = env1.run("pip", "list", capture_output=True)
+            assert "setuptools" in result.stdout
+            assert "wheel" not in result.stdout
+        
+        with env2:
+            result = env2.run("pip", "list", capture_output=True)
+            assert "wheel" in result.stdout
+            assert "setuptools" not in result.stdout   
     
     def test_environment_variables(self, env_manager):
         """Test environment variables preservation and restoration."""
