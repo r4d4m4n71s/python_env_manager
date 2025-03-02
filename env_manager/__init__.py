@@ -8,8 +8,9 @@ __version__ = "0.1.0"
 from .env_manager import (
     Environment,
     EnvManager,
-    InstallPkgContextManager,
+    InstallPkgContextManager
 )
 
 # Import GlobalState and read_toml from program_state.py
 from .program_state import GlobalState, read_toml
+from .env_local import PythonLocal

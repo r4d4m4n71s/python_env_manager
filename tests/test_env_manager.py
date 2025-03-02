@@ -468,6 +468,8 @@ class TestEnvManager:
         
         with mock.patch.object(manager, "activate") as mock_activate, \
              mock.patch.object(manager, "deactivate") as mock_deactivate:
+            # Configure mock_activate to return manager as the real activate method does
+            mock_activate.return_value = manager
             with manager as env:
                 assert env is manager
                 mock_activate.assert_called_once()
