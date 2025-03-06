@@ -27,7 +27,9 @@ classifiers = [
     "Topic :: Utilities",
 ]
 requires-python = ">=3.7"
-dependencies = []
+dependencies = [
+    "rich>=10.0.0"
+]
 
 [project.optional-dependencies]
 dev = [

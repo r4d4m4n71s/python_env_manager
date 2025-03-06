@@ -175,8 +175,32 @@ class EnvManager:
             raise RuntimeError(f"Failed to remove virtual environment: {e}") from e
 
     
-    def run(self, *cmd_args: str, capture_output: bool = True, **kwargs: Any) -> subprocess.CompletedProcess:
-        """Execute a command in the environment context."""
+    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> subprocess.CompletedProcess:
+        """
+        Execute a command in the environment context.
+        
+        Args:
+            *cmd_args: Command and arguments as separate strings.
+            capture_output: Whether to capture command output (default: True).
+            progressBar: Whether to display a progress bar (default: False).
+                         Note: If True, this will use EnvManagerWithProgress.
+            **kwargs: Additional arguments to pass to subprocess.run.
+            
+        Returns:
+            subprocess.CompletedProcess: Result of the command execution.
+            
+        Raises:
+            ValueError: If no command is provided.
+            RuntimeError: If command execution fails.
+        """
+        if progressBar:
+            # Create a new instance of EnvManagerWithProgress without importing it
+            # to avoid circular imports
+            progress_manager = globals()['EnvManagerWithProgress'](self.env.root)
+            
+            # Add capture_output to kwargs to avoid passing it twice
+            kwargs['capture_output'] = capture_output
+            return progress_manager.run(*cmd_args, progressBar=True, **kwargs)
         if not cmd_args:
             raise ValueError("No command provided")
             
@@ -434,3 +458,51 @@ class InstallPkgContextManager:
         except subprocess.CalledProcessError as e:
             self.env_manager.logger.error(f"Failed to uninstall package {self.package}")
             raise RuntimeError(f"Failed to uninstall package {self.package}") from e
+
+class EnvManagerWithProgress(EnvManager):
+    """
+    Environment Manager with Progress Bar support.
+    
+    This class extends EnvManager to add progress bar functionality for command execution.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        """Initialize EnvManagerWithProgress with same parameters as EnvManager."""
+        super().__init__(*args, **kwargs)
+        self._progress_runner = None
+    
+    @property
+    def progress_runner(self):
+        """Lazy-initialize the progress runner to avoid importing Rich until needed."""
+        if self._progress_runner is None:
+            from env_manager.progress_runner import ProgressRunner
+            self._progress_runner = ProgressRunner(self.logger, self.env)
+        return self._progress_runner
+    
+    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> subprocess.CompletedProcess:
+        """
+        Execute a command in the environment context with optional progress bar.
+        
+        This method extends the original run method by adding a progress bar
+        option that displays command execution progress in real-time.
+        
+        Args:
+            *cmd_args: Command and arguments as separate strings.
+            capture_output: Whether to capture command output (default: True).
+            progressBar: Whether to display a progress bar (default: False).
+            **kwargs: Additional arguments to pass to subprocess.run.
+            
+        Returns:
+            subprocess.CompletedProcess: Result of the command execution.
+            
+        Raises:
+            ValueError: If no command is provided.
+            RuntimeError: If command execution fails.
+        """
+        # Add capture_output to kwargs to avoid passing it twice
+        kwargs['capture_output'] = capture_output
+        
+        if progressBar:
+            return self.progress_runner.run(*cmd_args, **kwargs)
+        else:
+            return super().run(*cmd_args, **kwargs)

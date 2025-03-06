@@ -8,6 +8,7 @@ __version__ = "0.1.0"
 from .env_manager import (
     Environment,
     EnvManager,
+    EnvManagerWithProgress,
     InstallPkgContextManager
 )
 
