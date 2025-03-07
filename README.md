@@ -21,8 +21,10 @@ A powerful, cross-platform tool for managing Python virtual environments with a 
 - 🧩 **Context Manager Support** - Use with Python's `with` statement for clean code
 - 🔌 **Cross-Platform** - Works on Windows, macOS, and Linux
 - 🚀 **Effortless Environment Management** - Create and run commands in virtual environments on the fly
+- 📊 **Progress Visualization** - Real-time progress bars for long-running operations
 - 🔍 **Smart Consistency Checking** - Validate environment configurations and ensure package integrity
 - 🛡️ **Robust Error Handling** - Detailed logging and comprehensive error messages
+- 🧰 **Extensible Runner System** - Customize command execution with specialized runners
 
 ## 📋 Installation
 
@@ -115,7 +117,31 @@ env.run("python", "-c", "print('Hello from virtual environment!')")
 # Capture command output
 result = env.run("python", "--version", capture_output=True)
 print(f"Python version: {result.stdout}")
+
+# Run with progress bar visualization
+env.run("pip", "install", "large-package", progressBar=True)
 ```
+
+### 📊 Progress Bar Visualization
+
+For long-running operations, you can enable progress bar visualization to track execution in real-time.
+
+```python
+from env_manager import EnvManager
+
+env = EnvManager("path/to/venv")
+
+# Install a package with progress bar
+env.run("pip", "install", "tensorflow", progressBar=True)
+
+# Run a long-running script with progress tracking
+env.run("python", "train_model.py", "--epochs", "100", progressBar=True)
+```
+
+The progress bar automatically detects:
+- Percentage indicators (e.g., "50%", "Progress: 75%")
+- Count-based progress (e.g., "Downloaded 5 of 10 files", "Step 2/4 completed")
+- For commands without identifiable progress indicators, it shows a pulsing progress bar
 
 ### 🖥️ Working with Local Python
 
@@ -194,6 +220,120 @@ EnvManager(".some_env").run("python", "script.py")
 | Fine-grained control over activation timing | Explicit activation/deactivation |
 | CI/CD pipelines | Context manager for predictable cleanup |
 
+## 🧰 Runner Architecture
+
+The Python Environment Manager uses a flexible runner architecture to execute commands in different contexts. This architecture follows SOLID principles, providing clear separation of concerns and extensibility.
+
+### Available Runners
+
+- **Standard Runner**: Default runner for executing commands in virtual environments
+- **Progress Runner**: Executes commands with real-time progress visualization
+- **Local Runner**: Executes commands using the local Python installation
+
+### Using Different Runners
+
+The runner system provides a flexible way to execute commands in different contexts. Here's how to use different runners:
+
+```python
+from env_manager import EnvManager, RunnerFactory
+
+# Create environment manager
+env_manager = EnvManager("path/to/venv")
+
+# Method 1: Using EnvManager's get_runner method (recommended)
+standard_runner = env_manager.get_runner("standard")
+standard_runner.run("pip", "list")
+
+# Method 2: Using RunnerFactory directly
+# Create a runner and configure it with the environment manager
+standard_runner = RunnerFactory.create("standard").with_env(env_manager)
+standard_runner.run("pip", "list")
+
+# Using a progress runner for long-running operations
+progress_runner = RunnerFactory.create("progress").with_env(env_manager)
+progress_runner.run("pip", "install", "large-package")
+
+# Using a local runner for system Python operations
+local_runner = RunnerFactory.create("local").with_env(env_manager)
+local_runner.run("python", "--version")
+
+# Shorthand method using EnvManager's run with progressBar parameter
+env_manager.run("pip", "install", "tensorflow", progressBar=True)
+```
+
+### Advanced Package Management
+
+The PackageManager class provides a dedicated interface for package operations:
+
+```python
+from env_manager import EnvManager, PackageManager, RunnerFactory
+
+# Create environment manager
+env_manager = EnvManager("path/to/venv")
+
+# Method 1: Using EnvManager's install_pkg method (recommended)
+with env_manager.install_pkg("pytest"):
+    env_manager.run("pytest", "--version")
+
+# Method 2: Using PackageManager directly
+# Get a standard runner
+standard_runner = RunnerFactory.create("standard").with_env(env_manager)
+
+# Create a package manager with the runner
+pkg_manager = PackageManager(standard_runner)
+
+# Install a package permanently
+pkg_manager.install("requests")
+
+# Check if a package is installed
+if pkg_manager.is_installed("numpy"):
+    print("NumPy is installed")
+
+# List all installed packages
+installed_packages = pkg_manager.list_packages()
+print(f"Installed packages: {installed_packages}")
+
+# Install a package temporarily using context manager
+with pkg_manager.install_pkg("pytest"):
+    # Package is available only within this block
+    standard_runner.run("pytest", "--version")
+# Package is automatically uninstalled here
+
+# Uninstall a package
+pkg_manager.uninstall("requests")
+```
+
+### Creating Custom Runners
+
+You can extend the runner system by implementing the `IRunner` interface and registering your custom runner.
+
+```python
+from env_manager.runners.irunner import IRunner
+from env_manager import RunnerFactory
+import subprocess
+
+class MyCustomRunner(IRunner):
+    def __init__(self):
+        self.env_manager = None
+    
+    def with_env(self, env_manager):
+        self.env_manager = env_manager
+        return self
+    
+    def run(self, *cmd_args, **kwargs):
+        # Custom implementation
+        print(f"Running command: {' '.join(cmd_args)}")
+        # ... custom logic ...
+        return subprocess.run(*cmd_args, **kwargs)
+
+# Register your custom runner
+RunnerFactory.register("custom", MyCustomRunner)
+
+# Use your custom runner
+custom_runner = env_manager.get_runner("custom")
+custom_runner.run("python", "script.py")
+```
+
 ### 📦 Package Management
 
 Efficiently manage packages in your virtual environments with permanent or temporary installations.
@@ -254,12 +394,16 @@ EnvManager(
 - `logger`: Custom logger for the environment manager.
 
 **Methods:**
-- `activate()`: Activate the environment.
-- `deactivate()`: Deactivate the environment.
-- `run(*cmd_args, **kwargs)`: Run a command in the environment.
-- `install_pkg(package)`: Install a package temporarily.
-- `remove()`: Remove the virtual environment.
-- `is_active()`: Check if the environment is active.
+
+| Method | Description | Example |
+|--------|-------------|---------|
+| `activate()` | Activate the environment | `env.activate()` |
+| `deactivate()` | Deactivate the environment | `env.deactivate()` |
+| `run(*cmd_args, **kwargs)` | Execute commands in the environment | `env.run("pip", "install", "requests")` |
+| `install_pkg(package)` | Install Python package | `env.install_pkg("requests")` |
+| `remove()` | Remove the virtual environment | `env.remove()` |
+| `is_active()` | Check if environment is active | `if env.is_active(): ...` |
+- `run_local(*cmd_args, **kwargs)` | (static): Run a command using the local Python. | `env.run_local("pip", "install", "requests")` |
 
 ### 🏗️ Environment Class
 
@@ -280,6 +424,45 @@ Environment(
 - `name`: Environment name.
 - `is_virtual`: Whether the environment is a virtual environment.
 
+### 🏃 Runner Classes
+
+Classes for executing commands in different contexts.
+
+#### IRunner Interface
+
+```python
+class IRunner:
+    def with_env(self, env_manager): ...
+    def run(self, *cmd_args, **kwargs): ...
+```
+
+#### RunnerFactory
+
+```python
+class RunnerFactory:
+    @staticmethod
+    def register(name, runner_class): ...
+    @staticmethod
+    def create(name): ...
+    @staticmethod
+    def available_runners(): ...
+```
+
+### 📦 PackageManager Class
+
+Manages packages in Python environments.
+
+```python
+PackageManager(runner: Optional[IRunner] = None)
+```
+
+**Methods:**
+- `with_runner(runner)`: Configure with a runner.
+- `install(package, **options)`: Install a package.
+- `uninstall(package, **options)`: Uninstall a package.
+- `is_installed(package)`: Check if a package is installed.
+- `list_packages()`: List installed packages.
+- `install_pkg(package)`: Context manager for temporary installation.
 
 ## 🌟 Examples
 
@@ -294,8 +477,8 @@ from env_manager import EnvManager
 
 # Create a data science environment
 with EnvManager("path/to/data_science_env") as env:
-    # Install data science packages
-    env.run("pip", "install", "numpy", "pandas", "matplotlib", "scikit-learn")
+    # Install data science packages with progress bar
+    env.run("pip", "install", "numpy", "pandas", "matplotlib", "scikit-learn", progressBar=True)
     
     # Run analysis script
     env.run("python", "analyze_data.py", "--input", "data.csv", "--output", "results.csv")
@@ -356,8 +539,8 @@ from env_manager import EnvManager
 
 # Create web project environment
 with EnvManager("web_project_env") as env:
-    # Install web framework and dependencies
-    env.run("pip", "install", "flask", "flask-sqlalchemy", "flask-migrate")
+    # Install web framework and dependencies with progress bar
+    env.run("pip", "install", "flask", "flask-sqlalchemy", "flask-migrate", progressBar=True)
     
     # Initialize database
     env.run("flask", "db", "init")
@@ -372,9 +555,61 @@ with EnvManager("web_project_env") as env:
     env.run("flask", "run", "--debug")
 ```
 
+### 📊 Example 4: Using Progress Bars for Long Operations
+
+Visualize progress for long-running operations.
+
+```python
+from env_manager import EnvManager
+
+# Create environment
+env = EnvManager("ml_project_env")
+
+# Install a large machine learning library with progress visualization
+env.run("pip", "install", "tensorflow", progressBar=True)
+
+# Train a model with progress visualization
+env.run("python", "train_model.py", "--epochs", "100", "--batch-size", "32", progressBar=True)
+
+# Run a data processing pipeline with progress visualization
+env.run("python", "process_data.py", "--input", "large_dataset.csv", progressBar=True)
+```
+
+### 🧰 Example 5: Advanced Runner Usage
+
+Demonstrate the flexibility of the runner architecture.
+
+```python
+from env_manager import EnvManager, RunnerFactory, PackageManager
+
+# Create environment manager
+env_manager = EnvManager("path/to/venv")
+
+# Get and use a standard runner
+standard_runner = RunnerFactory.create("standard").with_env(env_manager)
+standard_runner.run("pip", "list")
+
+# Get and use a progress runner for long operations
+progress_runner = RunnerFactory.create("progress").with_env(env_manager)
+progress_runner.run("pip", "install", "large-package")
+
+# Get and use a local runner for system Python operations
+local_runner = RunnerFactory.create("local").with_env(env_manager)
+local_runner.run("python", "--version")
+
+# Use package manager for advanced package operations
+pkg_manager = PackageManager(standard_runner)
+pkg_manager.install("requests")
+
+# Temporary package installation with context manager
+with PackageManager(standard_runner).install_pkg("pytest"):
+    standard_runner.run("pytest", "--version")
+```
+
 ## 📦 Requirements
 
 - **Python**: 3.7+
+- **Dependencies**: Rich (for progress bar visualization)
 - **Platforms**: Windows, macOS, Linux
 
 ---

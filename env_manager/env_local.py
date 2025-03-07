@@ -2,7 +2,7 @@ import os
 import sys
 import platform
 import subprocess
-from typing import Optional, Tuple
+from typing import Optional
 
 
 class PythonLocal:

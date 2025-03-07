@@ -7,85 +7,16 @@ It handles environment creation, activation, deactivation, and package managemen
 
 import os
 import sys
-import re
 import shutil
-import subprocess
 import logging
 from venv import EnvBuilder
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Tuple
 
-from env_manager.env_local import PythonLocal
+from env_manager.environment import Environment
+from env_manager.runners.irunner import IRunner
+from env_manager.runners.runner_factory import RunnerFactory
+from env_manager.package_manager import PackageManager, InstallPkgContextManager
 
-class Environment:
-    """
-    Python environment information and paths.
-    
-    Represents a Python environment (virtual or local) with all its relevant paths
-    and properties.
-    
-    Attributes:
-        name: Environment name (derived from directory name)
-        root: Root directory of the environment
-        bin: Directory containing executables (Scripts on Windows, bin on Unix)
-        lib: Directory containing libraries
-        python: Path to the Python executable
-        is_virtual: Whether the environment is a virtual environment
-    """
-    
-    def __init__(self, path: Optional[str] = None, **kwargs):
-        """Initialize an Environment instance."""
-        # Direct attribute initialization (for advanced use cases)
-        if kwargs:
-            for key, value in kwargs.items():
-                setattr(self, key, value)
-            return
-
-        # Determine environment root path
-        self.root = os.path.abspath(
-            path or os.environ.get("VIRTUAL_ENV") or sys.prefix
-        )
-        
-        # Set platform-specific paths
-        is_windows = os.name == "nt"
-        self.bin = os.path.join(self.root, "Scripts" if is_windows else "bin")
-        self.lib = os.path.join(self.root, "Lib" if is_windows else "lib")
-        self.python = os.path.join(self.bin, "python.exe" if is_windows else "python")
-        
-        # Use system executable for non-virtual environments
-        self.is_virtual = not self.is_local(self.root)
-        if not self.is_virtual:
-            self.python = sys.executable
-                
-        # Extract environment name from directory
-        self.name = os.path.basename(self.root)
-
-    @staticmethod
-    def is_local(path: str) -> bool:
-        """Determine if a path points to a local Python installation."""
-        patterns = {
-            "nt": [  # Windows patterns
-                r"Python\d+",
-                r"AppData\\Local\\Programs\\Python\\Python\d+",
-                r"(Ana|Mini)conda3"
-            ],
-            "posix": [  # Unix patterns
-                r"/usr(/local)?$",
-                r"/usr(/local)?/bin$",
-                r"/opt/homebrew/bin$",
-                r"/Library/Frameworks/Python\.framework",
-                r"/(ana|mini)conda3?/bin$"
-            ]
-        }
-        os_patterns = patterns.get(os.name, patterns["posix"])
-        return any(re.search(pattern, path) for pattern in os_patterns)
-        
-    @classmethod
-    def from_dict(cls, env_dict: Dict[str, Any]) -> 'Environment':
-        """Create an Environment instance from a dictionary of attributes."""
-        instance = cls.__new__(cls)
-        for key, value in env_dict.items():
-            setattr(instance, key, value)
-        return instance
 
 class EnvManager:
     """
@@ -110,14 +41,20 @@ class EnvManager:
         self._original_path = list(sys.path)
         
         self.env = Environment(path)
+        # # For testing purposes, allow Environment to be mocked
+        # # This is needed for backward compatibility with tests
+        # if hasattr(Environment, '_mock_return_value') and Environment._mock_return_value is not None:
+        #     self.env = Environment._mock_return_value
+        # else:
+        #     self.env = Environment(path)
         
         # Create virtual environment if needed
         if self.env.is_virtual:
             # Check if the environment is active to notify risk of error
             if self.is_active():
                 self.logger.warning("Attempting to recreate active environment, caution having other "+
-                    f"accessing the environment, could cause a access exceptions {self.env.root}")  
-                             
+                    f"accessing the environment, could cause a access exceptions {self.env.root}")
+                              
             self._create_venv(clear=clear)
 
     def _create_venv(self, clear: bool = False) -> 'EnvManager':
@@ -175,7 +112,105 @@ class EnvManager:
             raise RuntimeError(f"Failed to remove virtual environment: {e}") from e
 
     
-    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> subprocess.CompletedProcess:
+    def _prepare_command(self, *cmd_args: str, capture_output: bool = True, **kwargs: Any) -> Tuple[Any, Dict[str, Any]]:
+        """
+        Prepare a command for execution in the environment context.
+        
+        This method handles the details of command preparation, including:
+        - Setting default kwargs
+        - Determining the execution strategy (activation script or direct execution)
+        - Handling platform-specific differences
+        - Preparing the command for execution
+        
+        Args:
+            *cmd_args: Command and arguments as separate strings.
+            capture_output: Whether to capture command output (default: True).
+            **kwargs: Additional arguments to pass to subprocess.run.
+            
+        Returns:
+            Tuple[Any, Dict[str, Any]]: A tuple containing:
+                - The prepared command (string or list)
+                - The updated kwargs dictionary
+                
+        Raises:
+            ValueError: If no command is provided.
+        """
+        if not cmd_args:
+            raise ValueError("No command provided")
+            
+        # Set default kwargs
+        kwargs.setdefault('text', True)
+        kwargs.setdefault('check', True)
+        kwargs.setdefault('capture_output', capture_output)
+        
+        is_windows = os.name == "nt"
+        cmd_list = [str(arg) for arg in cmd_args]
+        
+        # Determine command execution strategy
+        activate_script = os.path.join(
+            self.env.bin,
+            "activate.bat" if is_windows else "activate"
+        )
+        
+        if os.path.exists(activate_script):
+            # Virtual environment with activation script
+            # Set common shell command properties
+            kwargs['shell'] = True
+            
+            # Extract Python code for -c commands
+            is_python_c_command = len(cmd_list) >= 2 and cmd_list[0] == "python" and cmd_list[1] == "-c"
+            
+            if is_python_c_command:
+                # Properly handle Python -c command with quoted code
+                python_code = " ".join(cmd_list[2:])
+                cmd_part = f'python -c "{python_code}"'
+            else:
+                # Standard command
+                cmd_part = " ".join(cmd_list)
+            
+            # Platform-specific activation and shell setup
+            if is_windows:
+                shell_cmd = f'"{activate_script}" && {cmd_part}'
+            else:
+                shell_cmd = f'source "{activate_script}" && {cmd_part}'
+                kwargs['executable'] = '/bin/bash'
+        else:
+            # Local Python or no activation script
+            kwargs['shell'] = False
+            
+            if cmd_list and cmd_list[0].lower() == 'python':
+                # Use environment's Python executable
+                python_exe = self.env.python if os.path.exists(self.env.python) else sys.executable
+                shell_cmd = [python_exe] + cmd_list[1:]
+            else:
+                # Look for command in environment's bin directory
+                cmd_path = os.path.join(
+                    self.env.bin,
+                    cmd_list[0] + (".exe" if is_windows else "")
+                )
+                if not os.path.exists(cmd_path):
+                    cmd_path = cmd_list[0]
+                shell_cmd = [cmd_path] + cmd_list[1:]
+                
+        return shell_cmd, kwargs
+        
+    def get_runner(self, runner_type: str = "standard") -> IRunner:
+        """
+        Get a runner of the specified type.
+        
+        Args:
+            runner_type: The type of runner to get (default: "standard").
+                         Available types depend on registered runners.
+                         
+        Returns:
+            IRunner: A runner instance configured with this environment manager.
+            
+        Raises:
+            ValueError: If the runner type is not registered.
+        """
+        return RunnerFactory.create(runner_type).with_env(self)
+        
+    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> Any:
         """
         Execute a command in the environment context.
         
@@ -183,7 +218,7 @@ class EnvManager:
             *cmd_args: Command and arguments as separate strings.
             capture_output: Whether to capture command output (default: True).
             progressBar: Whether to display a progress bar (default: False).
-                         Note: If True, this will use EnvManagerWithProgress.
+                         Note: If True, this will use a progress runner.
             **kwargs: Additional arguments to pass to subprocess.run.
             
         Returns:
@@ -194,89 +229,13 @@ class EnvManager:
             RuntimeError: If command execution fails.
         """
         if progressBar:
-            # Create a new instance of EnvManagerWithProgress without importing it
-            # to avoid circular imports
-            progress_manager = globals()['EnvManagerWithProgress'](self.env.root)
-            
-            # Add capture_output to kwargs to avoid passing it twice
-            kwargs['capture_output'] = capture_output
-            return progress_manager.run(*cmd_args, progressBar=True, **kwargs)
-        if not cmd_args:
-            raise ValueError("No command provided")
-            
-        # Set default kwargs
-        kwargs.setdefault('text', True)
-        kwargs.setdefault('check', True)
-        kwargs.setdefault('capture_output', capture_output)
+            # Use a progress runner
+            return self.get_runner("progress").run(*cmd_args, capture_output=capture_output, **kwargs)
         
-        try:
-            is_windows = os.name == "nt"
-            cmd_list = [str(arg) for arg in cmd_args]
-            
-            # Determine command execution strategy
-            activate_script = os.path.join(
-                self.env.bin,
-                "activate.bat" if is_windows else "activate"
-            )
-            
-            if os.path.exists(activate_script):
-                # Virtual environment with activation script
-                # Set common shell command properties
-                kwargs['shell'] = True
-                
-                # Extract Python code for -c commands
-                is_python_c_command = len(cmd_list) >= 2 and cmd_list[0] == "python" and cmd_list[1] == "-c"
-                
-                if is_python_c_command:
-                    # Properly handle Python -c command with quoted code
-                    python_code = " ".join(cmd_list[2:])
-                    cmd_part = f'python -c "{python_code}"'
-                else:
-                    # Standard command
-                    cmd_part = " ".join(cmd_list)
-                
-                # Platform-specific activation and shell setup
-                if is_windows:
-                    shell_cmd = f'"{activate_script}" && {cmd_part}'
-                else:
-                    shell_cmd = f'source "{activate_script}" && {cmd_part}'
-                    kwargs['executable'] = '/bin/bash'
-            else:
-                # Local Python or no activation script
-                kwargs['shell'] = False
-                
-                if cmd_list and cmd_list[0].lower() == 'python':
-                    # Use environment's Python executable
-                    python_exe = self.env.python if os.path.exists(self.env.python) else sys.executable
-                    shell_cmd = [python_exe] + cmd_list[1:]
-                else:
-                    # Look for command in environment's bin directory
-                    cmd_path = os.path.join(
-                        self.env.bin,
-                        cmd_list[0] + (".exe" if is_windows else "")
-                    )
-                    if not os.path.exists(cmd_path):
-                        cmd_path = cmd_list[0]
-                    shell_cmd = [cmd_path] + cmd_list[1:]
-            
-            # Execute command
-            result = subprocess.run(shell_cmd, env=os.environ, **kwargs)
-            self.logger.info(f"Successfully executed command: {' '.join(cmd_list)}")
-            return result
-            
-        except subprocess.CalledProcessError as e:
-            # Let CalledProcessError propagate for proper error handling
-            self.logger.error(f"Command failed: {' '.join(cmd_list)}, return code: {e.returncode}")
-            if e.stdout:
-                self.logger.error(f"Command stdout: {e.stdout}")
-            if e.stderr:
-                self.logger.error(f"Command stderr: {e.stderr}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Failed to execute command: {e}")
-            raise RuntimeError(f"Failed to execute command: {e}") from e
+        # Use the standard runner
+        return self.get_runner("standard").run(*cmd_args, capture_output=capture_output, **kwargs)
 
-    def activate(self) -> None:
+    def activate(self) -> 'EnvManager':
         """Activate the Python environment."""
         if self.is_active():
             return self
@@ -315,7 +274,7 @@ class EnvManager:
         
         return self
 
-    def deactivate(self) -> None:
+    def deactivate(self) -> 'EnvManager':
         """Deactivate the current Python environment and restore original state."""
         if not self.is_active():
             return self
@@ -347,7 +306,7 @@ class EnvManager:
         )
     
     @staticmethod
-    def run_local(*cmd_args: str, capture_output: bool = True, **kwargs: Any) -> subprocess.CompletedProcess:
+    def run_local(*cmd_args: str, capture_output: bool = True, **kwargs: Any) -> Any:
         """
         Execute a command using the local Python distribution.
         
@@ -366,53 +325,10 @@ class EnvManager:
             ValueError: If no command is provided.
             RuntimeError: If command execution fails.
         """
-        if not cmd_args:
-            raise ValueError("No command provided")
-            
-        # Set default kwargs
-        kwargs.setdefault('text', True)
-        kwargs.setdefault('check', True)
-        kwargs.setdefault('capture_output', capture_output)
-        
-        # Find the local Python executable
-        python_local = PythonLocal()
-        base_exe = python_local.find_base_executable()
-        
-        if not base_exe:
-            base_exe = sys.executable  # Fallback to current Python if base not found
-            
-        cmd_list = [str(arg) for arg in cmd_args]
-        
-        try:
-            # If the command starts with 'python', use the base executable instead
-            if cmd_list and cmd_list[0].lower() == 'python':
-                shell_cmd = [base_exe] + cmd_list[1:]
-            else:
-                # For non-Python commands, use them directly
-                shell_cmd = cmd_list
-                
-            # Create a logger for this static method
-            logger = logging.getLogger(__name__)
-            
-            # Execute command
-            result = subprocess.run(shell_cmd, **kwargs)
-            logger.info(f"Successfully executed command with local Python: {' '.join(cmd_list)}")
-            return result
-            
-        except subprocess.CalledProcessError as e:
-            # Let CalledProcessError propagate for proper error handling
-            logger = logging.getLogger(__name__)
-            logger.error(f"Local command failed: {' '.join(cmd_list)}, return code: {e.returncode}")
-            if hasattr(e, 'stdout') and e.stdout:
-                logger.error(f"Command stdout: {e.stdout}")
-            if hasattr(e, 'stderr') and e.stderr:
-                logger.error(f"Command stderr: {e.stderr}")
-            raise
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to execute local command: {e}")
-            raise RuntimeError(f"Failed to execute local command: {e}") from e
-            
+        # Use the LocalRunner directly
+        from env_manager.runners.local_runner import LocalRunner
+        return LocalRunner().run(*cmd_args, capture_output=capture_output, **kwargs)
+
     def __enter__(self) -> 'EnvManager':
         """Context manager entry point that activates the environment."""
         return self.activate()        
@@ -422,7 +338,7 @@ class EnvManager:
         """Context manager exit point that deactivates the environment."""
         self.deactivate()
 
-    def install_pkg(self, package: str) -> 'InstallPkgContextManager':
+    def install_pkg(self, package: str) -> InstallPkgContextManager:
         """
         Install a package in the Python environment.
         
@@ -430,79 +346,6 @@ class EnvManager:
         - Regular: env_manager.install_pkg("package")
         - Context: with env_manager.install_pkg("package"): ...
         """
-        return InstallPkgContextManager(self, package)
-        
-class InstallPkgContextManager:
-    """Context manager for temporary package installation."""
-    
-    def __init__(self, env_manager: 'EnvManager', package: str):
-        """Initialize and install the package."""
-        self.env_manager = env_manager
-        self.package = package
-        
-        try:
-            self.env_manager.run("pip", "install", self.package)
-        except subprocess.CalledProcessError as e:
-            self.env_manager.logger.error(f"Failed to install package {self.package}")
-            raise RuntimeError(f"Failed to install package {self.package}") from e
-            
-    def __enter__(self) -> 'InstallPkgContextManager':
-        """Context manager entry."""
-        return self
-            
-    def __exit__(self, exc_type: Optional[type], exc_val: Optional[Exception],
-                 exc_tb: Optional[Any]) -> None:
-        """Context manager exit - uninstall the package."""
-        try:
-            self.env_manager.run("pip", "uninstall", "-y", self.package)
-        except subprocess.CalledProcessError as e:
-            self.env_manager.logger.error(f"Failed to uninstall package {self.package}")
-            raise RuntimeError(f"Failed to uninstall package {self.package}") from e
-
-class EnvManagerWithProgress(EnvManager):
-    """
-    Environment Manager with Progress Bar support.
-    
-    This class extends EnvManager to add progress bar functionality for command execution.
-    """
-    
-    def __init__(self, *args, **kwargs):
-        """Initialize EnvManagerWithProgress with same parameters as EnvManager."""
-        super().__init__(*args, **kwargs)
-        self._progress_runner = None
-    
-    @property
-    def progress_runner(self):
-        """Lazy-initialize the progress runner to avoid importing Rich until needed."""
-        if self._progress_runner is None:
-            from env_manager.progress_runner import ProgressRunner
-            self._progress_runner = ProgressRunner(self.logger, self.env)
-        return self._progress_runner
-    
-    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> subprocess.CompletedProcess:
-        """
-        Execute a command in the environment context with optional progress bar.
-        
-        This method extends the original run method by adding a progress bar
-        option that displays command execution progress in real-time.
-        
-        Args:
-            *cmd_args: Command and arguments as separate strings.
-            capture_output: Whether to capture command output (default: True).
-            progressBar: Whether to display a progress bar (default: False).
-            **kwargs: Additional arguments to pass to subprocess.run.
-            
-        Returns:
-            subprocess.CompletedProcess: Result of the command execution.
-            
-        Raises:
-            ValueError: If no command is provided.
-            RuntimeError: If command execution fails.
-        """
-        # Add capture_output to kwargs to avoid passing it twice
-        kwargs['capture_output'] = capture_output
-        
-        if progressBar:
-            return self.progress_runner.run(*cmd_args, **kwargs)
-        else:
-            return super().run(*cmd_args, **kwargs)
+        # Create a package manager with a standard runner
+        pkg_manager = PackageManager(self.get_runner("standard"))
+        return pkg_manager.install_pkg(package)

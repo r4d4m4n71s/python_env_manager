@@ -1,278 +1,241 @@
 """
-Unit tests for the progress_runner module.
-
-These tests focus on the ProgressRunner class and its integration with EnvManagerWithProgress.
+Test module for ProgressRunner class.
 """
 
 import os
-import sys
 import subprocess
-import logging
-from unittest import mock
-import pytest
+import time
+from unittest.mock import MagicMock, patch
 
-from env_manager import Environment, EnvManager, EnvManagerWithProgress
-from env_manager.progress_runner import ProgressRunner
+import pytest
+from rich.console import Console
+from rich.spinner import Spinner
+
+from env_manager.runners.progress_runner import ProgressRunner
+from env_manager import env_manager
 
 
 class TestProgressRunner:
-    """Tests for the ProgressRunner class."""
-    
-    @pytest.fixture
-    def mock_environment(self):
-        """Fixture to mock Environment class."""
-        mock_env = mock.MagicMock()
-        mock_env.root = "/test/venv/path"
-        mock_env.bin = "/test/venv/path/bin"
-        mock_env.lib = "/test/venv/path/lib"
-        mock_env.python = "/test/venv/path/bin/python"
-        mock_env.name = "path"
-        mock_env.is_virtual = True
-        return mock_env
-    
-    @pytest.fixture
-    def mock_logger(self):
-        """Fixture to mock logger."""
-        return mock.MagicMock(spec=logging.Logger)
-    
-    @pytest.fixture
-    def progress_runner(self, mock_environment, mock_logger):
-        """Fixture to create a ProgressRunner instance."""
-        return ProgressRunner(mock_logger, mock_environment)
-    
-    def test_init(self, progress_runner, mock_environment, mock_logger):
-        """Test initializing ProgressRunner."""
-        assert progress_runner.logger is mock_logger
-        assert progress_runner.env is mock_environment
-    
-    def test_prepare_command_with_activation_script(self, progress_runner):
-        """Test preparing a command with an activation script."""
-        with mock.patch("os.path.exists", return_value=True), \
-             mock.patch("os.name", "nt"):
-            cmd_args = ("pip", "install", "package")
-            kwargs = {}
-            
-            shell_cmd, updated_kwargs = progress_runner.prepare_command(cmd_args, kwargs)
-            
-            assert isinstance(shell_cmd, str)
-            assert "activate.bat" in shell_cmd
-            assert "pip install package" in shell_cmd
-            assert updated_kwargs.get("shell") is True
-    
-    def test_prepare_command_without_activation_script(self, progress_runner):
-        """Test preparing a command without an activation script."""
-        with mock.patch("os.path.exists", return_value=False), \
-             mock.patch("os.name", "nt"), \
-             mock.patch("sys.executable", progress_runner.env.python):
-            cmd_args = ("python", "-c", "print('hello')")
-            kwargs = {}
-            
-            shell_cmd, updated_kwargs = progress_runner.prepare_command(cmd_args, kwargs)
-            
-            assert isinstance(shell_cmd, list)
-            assert shell_cmd[0] == progress_runner.env.python
-            assert "-c" in shell_cmd
-            assert "print('hello')" in shell_cmd
-            assert updated_kwargs.get("shell") is False
-    
-    def test_estimate_progress_percentage(self, progress_runner):
-        """Test estimating progress from percentage indicators."""
-        assert progress_runner.estimate_progress("Progress: 50%") == 0.5
-        assert progress_runner.estimate_progress("50% complete") == 0.5
-        assert progress_runner.estimate_progress("Downloaded 50%") == 0.5
-        assert progress_runner.estimate_progress("No percentage here") is None
-    
-    def test_estimate_progress_count(self, progress_runner):
-        """Test estimating progress from count indicators."""
-        assert progress_runner.estimate_progress("Processing 5 of 10 files") == 0.5
-        assert progress_runner.estimate_progress("Step 2/4 completed") == 0.5
-        assert progress_runner.estimate_progress("No count here") is None
-    
-    def test_create_progress_bar(self, progress_runner):
-        """Test creating a progress bar."""
-        # Create a real Progress instance for testing
-        try:
-            from rich.progress import Progress
-            from rich.console import Console
-            
-            # Call the method
-            progress, task_id = progress_runner.create_progress_bar(["pip", "install", "package"])
-            
-            # Verify results
-            assert isinstance(progress, Progress)
-            assert isinstance(task_id, int)
-            assert task_id >= 0
-        except ImportError:
-            # Skip test if Rich is not installed
-            pytest.skip("Rich library not installed")
-    
-    @mock.patch("subprocess.Popen")
-    def test_run_with_capture(self, mock_popen, progress_runner):
-        """Test running a process with output capture."""
-        # Setup mock process
-        mock_process = mock_popen.return_value
-        mock_process.poll.side_effect = [None, 0]
-        mock_process.stdout.readline.return_value = "Progress: 50%"
-        mock_process.stderr.readline.return_value = ""
-        mock_process.stdout.readable.return_value = False
-        mock_process.stderr.readable.return_value = False
+    """Test cases for the ProgressRunner class."""
+
+    def setup_method(self):
+        """Set up test fixtures for each test method."""
+        self.mock_env_manager = MagicMock(spec=env_manager.EnvManager)
+        self.mock_env_manager.logger = MagicMock()
         
-        # Setup mock progress
-        mock_progress = mock.MagicMock()
-        
-        result = progress_runner.run_with_capture(
-            mock_process, mock_progress, 1, ["pip", "install", "package"]
+        # Set up a return value for _prepare_command method
+        self.mock_env_manager._prepare_command.return_value = (
+            ["echo", "test"],  # shell_cmd
+            {"capture_output": True}  # run_kwargs
         )
         
-        assert isinstance(result, subprocess.CompletedProcess)
-        assert result.returncode == 0
-        assert mock_progress.update.called
-    
-    @mock.patch("subprocess.Popen")
-    def test_run_without_capture(self, mock_popen, progress_runner):
-        """Test running a process without output capture."""
-        # Setup mock process
-        mock_process = mock_popen.return_value
-        mock_process.poll.side_effect = [None, 0]
+        self.runner = ProgressRunner().with_env(self.mock_env_manager)
+
+    def test_initialization(self):
+        """Test that the runner is properly initialized."""
+        runner = ProgressRunner()
+        assert runner.env_manager is None
+        assert isinstance(runner.console, Console)
+
+    def test_with_env(self):
+        """Test that with_env properly configures the runner."""
+        runner = ProgressRunner()
+        result = runner.with_env(self.mock_env_manager)
         
-        # Setup mock progress
-        mock_progress = mock.MagicMock()
+        assert runner.env_manager == self.mock_env_manager
+        assert result == runner  # Should return self
+
+    def test_run_without_env_manager(self):
+        """Test that run raises ValueError when no env_manager is configured."""
+        runner = ProgressRunner()
         
-        result = progress_runner.run_without_capture(
-            mock_process, mock_progress, 1, ["pip", "install", "package"]
+        with pytest.raises(ValueError, match="Runner not configured with an environment manager"):
+            runner.run("echo", "test")
+
+    @patch("subprocess.run")
+    @patch("rich.console.Console.status")
+    @patch("time.time")
+    def test_run_success(self, mock_time, mock_status, mock_subprocess_run):
+        """Test successful command execution with progress spinner."""
+        # Mock time.time() to consistently return increasing values for testing
+        # First value is the start time, then each update needs a value
+        time_values = [10.0]
+        # Add 10 more increasing values to handle multiple status updates
+        time_values.extend([10.0 + i * 0.5 for i in range(1, 10)])
+        mock_time.side_effect = time_values
+        
+        # Mock the context manager for console.status
+        mock_status_context = MagicMock()
+        mock_status.return_value.__enter__.return_value = mock_status_context
+        
+        # Mock subprocess.run to return a successful CompletedProcess
+        mock_completed_process = MagicMock(spec=subprocess.CompletedProcess)
+        mock_subprocess_run.return_value = mock_completed_process
+        
+        # Execute the run method
+        result = self.runner.run("test", "command")
+        
+        # Verify the environment manager's _prepare_command was called correctly
+        self.mock_env_manager._prepare_command.assert_called_once_with(
+            "test", "command", capture_output=True
         )
         
-        assert isinstance(result, subprocess.CompletedProcess)
+        # Verify subprocess.run was called with the prepared command
+        mock_subprocess_run.assert_called_once_with(
+            ["echo", "test"], env=mock_subprocess_run.call_args.kwargs['env'], capture_output=True
+        )
+        
+        # Verify the spinner was updated with timing information
+        mock_status_context.update.assert_called()
+        
+        # Verify the success was logged
+        self.mock_env_manager.logger.info.assert_called_once()
+        
+        # Verify the result is the mocked CompletedProcess
+        assert result == mock_completed_process
+
+    @patch("subprocess.run")
+    @patch("rich.console.Console.status")
+    def test_run_subprocess_error(self, mock_status, mock_subprocess_run):
+        """Test handling of subprocess.CalledProcessError."""
+        # Mock the context manager for console.status
+        mock_status_context = MagicMock()
+        mock_status.return_value.__enter__.return_value = mock_status_context
+        
+        # Mock subprocess.run to raise CalledProcessError
+        error = subprocess.CalledProcessError(1, ["echo", "test"])
+        error.stdout = b"stdout content"
+        error.stderr = b"stderr content"
+        mock_subprocess_run.side_effect = error
+        
+        # Execute the run method and expect the error to propagate
+        with pytest.raises(subprocess.CalledProcessError):
+            self.runner.run("test", "command")
+        
+        # Verify error was logged
+        self.mock_env_manager.logger.error.assert_called()
+
+    @patch("subprocess.run")
+    @patch("rich.console.Console.status")
+    def test_run_general_exception(self, mock_status, mock_subprocess_run):
+        """Test handling of general exceptions during execution."""
+        # Mock the context manager for console.status
+        mock_status_context = MagicMock()
+        mock_status.return_value.__enter__.return_value = mock_status_context
+        
+        # Mock subprocess.run to raise a general exception
+        mock_subprocess_run.side_effect = Exception("Test error")
+        
+        # Execute the run method and expect RuntimeError
+        with pytest.raises(RuntimeError, match="Failed to execute command"):
+            self.runner.run("test", "command")
+        
+        # Verify error was logged
+        self.mock_env_manager.logger.error.assert_called_once_with(
+            "Failed to execute command: Test error"
+        )
+
+
+@pytest.fixture
+def mock_env_manager():
+    """Create a mock environment manager for regression testing."""
+    mock_env = MagicMock(spec=env_manager.EnvManager)
+    mock_env.logger = MagicMock()
+    
+    # Setup _prepare_command to return command in format expected by subprocess.run
+    def prepare_command(*args, **kwargs):
+        cmd_args = list(args)
+        run_kwargs = {k: v for k, v in kwargs.items()}
+        if "capture_output" in run_kwargs:
+            run_kwargs["capture_output"] = True
+        return cmd_args, run_kwargs
+    
+    mock_env._prepare_command.side_effect = prepare_command
+    return mock_env
+
+
+@pytest.fixture
+def mock_console_status():
+    """Mock the rich console status to avoid actual console interactions."""
+    with patch('env_manager.runners.progress_runner.Console.status') as mock_status:
+        mock_status_context = MagicMock()
+        mock_status.return_value.__enter__.return_value = mock_status_context
+        yield mock_status, mock_status_context
+
+
+@pytest.fixture
+def progress_runner(mock_env_manager, mock_console_status):
+    """Create a configured ProgressRunner instance with mocked dependencies."""
+    return ProgressRunner().with_env(mock_env_manager)
+
+
+class TestProgressRunnerRegression:
+    """Regression tests for the ProgressRunner class."""
+
+    def test_python_print_command(self, progress_runner, mock_env_manager, mock_console_status):
+        """Test execution of a Python print command (more reliable than echo)."""
+        # Unpack the mock_console_status fixture
+        _, mock_status_context = mock_console_status
+        
+        # Run a Python print command instead of echo (more cross-platform compatible)
+        test_message = "Progress Runner Test"
+        result = progress_runner.run(
+            "python", "-c", f"print('{test_message}')"
+        )
+        
+        # Verify the command executed successfully
         assert result.returncode == 0
-        assert mock_progress.update.called
-    
-    @mock.patch("subprocess.Popen")
-    @mock.patch("rich.progress.Progress")
-    @mock.patch("rich.console.Console")
-    def test_run(self, mock_console_class, mock_progress_class, mock_popen, progress_runner):
-        """Test the main run method."""
-        # Setup mocks
-        mock_console = mock_console_class.return_value
-        mock_console.width = 100
+        assert test_message in result.stdout.decode().strip()
         
-        mock_progress = mock_progress_class.return_value
-        mock_progress.add_task.return_value = 1
-        mock_progress.task_ids = [1]
-        mock_progress.__enter__.return_value = mock_progress
+        # Verify that status updates were called (spinner and timer were updated)
+        assert mock_status_context.update.called
         
-        mock_process = mock_popen.return_value
-        mock_process.poll.side_effect = [None, 0]
-        mock_process.stdout.readline.return_value = "Progress: 50%"
-        mock_process.stderr.readline.return_value = ""
-        mock_process.stdout.readable.return_value = False
-        mock_process.stderr.readable.return_value = False
-        
-        with mock.patch.object(progress_runner, "prepare_command") as mock_prepare, \
-             mock.patch.object(progress_runner, "create_progress_bar") as mock_create_bar, \
-             mock.patch.object(progress_runner, "run_with_capture") as mock_run_with_capture:
-            
-            mock_prepare.return_value = (["python", "-c", "print('hello')"], {})
-            mock_create_bar.return_value = (mock_progress, 1)
-            mock_run_with_capture.return_value = subprocess.CompletedProcess(
-                args=["python", "-c", "print('hello')"],
-                returncode=0,
-                stdout="hello",
-                stderr=""
-            )
-            
-            result = progress_runner.run(("python", "-c", "print('hello')"))
-            
-            assert isinstance(result, subprocess.CompletedProcess)
-            assert result.returncode == 0
-            assert mock_prepare.called
-            assert mock_create_bar.called
-            assert mock_run_with_capture.called
-    
-    def test_run_error(self, progress_runner):
-        """Test error handling in the run method."""
-        with mock.patch.object(progress_runner, "prepare_command") as mock_prepare:
-            mock_prepare.side_effect = Exception("Test error")
-            
-            with pytest.raises(RuntimeError, match="Failed to execute command"):
-                progress_runner.run(("python", "-c", "print('hello')"))
+        # Verify success was logged
+        mock_env_manager.logger.info.assert_called_once()
 
+    @pytest.mark.parametrize("sleep_time", [0.1])  # Short time for CI/CD
+    def test_command_with_duration(self, progress_runner, mock_env_manager, mock_console_status, sleep_time):
+        """Test command that runs for a specific duration."""
+        # Unpack the mock_console_status fixture
+        _, mock_status_context = mock_console_status
+        
+        # This test verifies the timer actually updates during execution
+        start_time = time.time()
+        
+        # Use Python's sys.executable to run a Python sleep command
+        # This is more reliable across platforms than using shell sleep commands
+        result = progress_runner.run(
+            "python", "-c", f"import time; time.sleep({sleep_time})"
+        )
+        
+        end_time = time.time()
+        
+        # Verify the command ran for at least the sleep duration
+        assert end_time - start_time >= sleep_time
+        
+        # Verify the command executed successfully
+        assert result.returncode == 0
+        
+        # Verify that status updates were called (spinner and timer were updated)
+        assert mock_status_context.update.called
+        
+        # Verify success was logged
+        mock_env_manager.logger.info.assert_called_once()
 
-class TestEnvManagerWithProgress:
-    """Tests for the EnvManagerWithProgress class."""
-    
-    @pytest.fixture
-    def mock_environment(self):
-        """Fixture to mock Environment class."""
-        with mock.patch("env_manager.env_manager.Environment") as mock_env_class:
-            mock_env = mock.MagicMock()
-            mock_env.root = "/test/venv/path"
-            mock_env.bin = "/test/venv/path/bin"
-            mock_env.lib = "/test/venv/path/lib"
-            mock_env.python = "/test/venv/path/bin/python"
-            mock_env.name = "path"
-            mock_env.is_virtual = True
-            mock_env_class.return_value = mock_env
-            yield mock_env
-    
-    @pytest.fixture
-    def mock_env_builder(self):
-        """Fixture to mock EnvBuilder."""
-        with mock.patch("env_manager.env_manager.EnvBuilder") as mock_builder:
-            mock_instance = mock_builder.return_value
-            mock_instance.create.return_value = None
-            yield mock_builder
-    
-    @pytest.fixture
-    def mock_progress_runner(self):
-        """Fixture to mock ProgressRunner."""
-        with mock.patch("env_manager.progress_runner.ProgressRunner") as mock_runner:
-            mock_instance = mock_runner.return_value
-            mock_instance.run.return_value = mock.MagicMock()
-            yield mock_instance
-    
-    def test_init(self, mock_environment, mock_env_builder):
-        """Test initializing EnvManagerWithProgress."""
-        manager = EnvManagerWithProgress("/test/venv/path")
-        assert isinstance(manager, EnvManager)
-        assert manager._progress_runner is None
-    
-    def test_progress_runner_property(self, mock_environment, mock_env_builder):
-        """Test the progress_runner property."""
-        with mock.patch("env_manager.progress_runner.ProgressRunner") as mock_runner:
-            manager = EnvManagerWithProgress("/test/venv/path")
-            runner = manager.progress_runner
-            assert runner is not None
-            assert manager._progress_runner is not None
-            # Verify property returns same instance on second call
-            assert manager.progress_runner is runner
-    
-    def test_run_with_progress(self, mock_environment, mock_env_builder, mock_progress_runner):
-        """Test running a command with a progress bar."""
-        with mock.patch.object(EnvManagerWithProgress, "progress_runner", 
-                              new_callable=mock.PropertyMock) as mock_property:
-            mock_property.return_value = mock_progress_runner
+    def test_failing_command(self, progress_runner, mock_env_manager, mock_console_status):
+        """Test handling of a command that fails."""
+        # Setup subprocess.run to raise a CalledProcessError
+        with patch('subprocess.run') as mock_run:
+            # Configure mock to raise CalledProcessError
+            mock_called_proc_error = subprocess.CalledProcessError(1, ["python", "-c", "import sys; sys.exit(1)"])
+            mock_called_proc_error.stdout = b""
+            mock_called_proc_error.stderr = b"Simulated error"
+            mock_run.side_effect = mock_called_proc_error
             
-            manager = EnvManagerWithProgress("/test/venv/path")
-            
-            # Test running a command with progress bar
-            result = manager.run("pip", "install", "package", progressBar=True)
-            
-            # Verify progress_runner.run was called with unpacked arguments
-            mock_progress_runner.run.assert_called_once_with("pip", "install", "package",
-                                                           capture_output=True)
-            assert result is mock_progress_runner.run.return_value
-    
-    def test_run_without_progress(self, mock_environment, mock_env_builder):
-        """Test running a command without a progress bar."""
-        with mock.patch.object(EnvManager, "run") as mock_run:
-            mock_run.return_value = mock.MagicMock()
-            
-            manager = EnvManagerWithProgress("/test/venv/path")
-            
-            # Test running a command without progress bar
-            result = manager.run("pip", "install", "package", progressBar=False)
-            
-            # Verify parent run method was called
-            mock_run.assert_called_once_with("pip", "install", "package", 
-                                            capture_output=True)
-            assert result is mock_run.return_value
+            # Run a command that should now fail due to our mocked exception
+            # The ProgressRunner re-raises CalledProcessError directly
+            with pytest.raises(subprocess.CalledProcessError):
+                progress_runner.run("python", "-c", "import sys; sys.exit(1)")
+        
+        # Verify error was logged
+        mock_env_manager.logger.error.assert_called()
