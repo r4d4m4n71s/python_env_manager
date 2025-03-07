@@ -11,8 +11,7 @@ import logging
 import pytest
 import time
 from pathlib import Path
-from env_manager import EnvManager, Environment, InstallPkgContextManager
-
+from env_manager import EnvManager, Environment, InstallPkgContextManager, PythonLocal
 
 class TestEnvManagerIntegration:
     """Integration tests for EnvManager testing complete workflows."""
@@ -30,9 +29,10 @@ class TestEnvManagerIntegration:
     @pytest.fixture
     def temp_env_path(self, tmp_path, test_logger):
         """Create a temporary directory for virtual environment."""
-        env_path = tmp_path / ".venv"
+        env_path = tmp_path / ".test_venv"
         env_path.mkdir(exist_ok=True)
-  
+        return env_path
+    
     @pytest.fixture
     def env_manager(self, temp_env_path, test_logger):
         """Create EnvManager instance with temporary path."""
@@ -202,9 +202,13 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
             if "TEST_VAR" in os.environ:
                 del os.environ["TEST_VAR"]
     
-    def test_local_python(self, test_logger):
-        """Test working with local Python installation."""
-        local_env = EnvManager(path=None, logger=test_logger)  # Uses system Python
+    def test_venv_to_venv_creation(self, test_logger):
+    
+        """Test working with venv to venv."""
+        #use base pibot env
+        EnvManager(".test_env").activate()
+                
+        local_env = EnvManager(path=None, clear=True, logger=test_logger)  # Uses system Python
         original_environ = dict(os.environ)
         
         with local_env:
@@ -217,8 +221,8 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
             )
             assert "test" in result.stdout.strip()
         
-        # Verify environment restored
-        assert os.environ == original_environ
+            # Verify environment restored
+            assert os.environ == original_environ
     
     def test_environment_class(self, tmp_path):
         """Test Environment class integration with EnvManager."""

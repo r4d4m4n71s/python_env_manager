@@ -14,7 +14,7 @@ Key Features:
 - Configurable storage location
 
 Default Storage Location:
-- Windows: %USERPROFILE%\.config\[app_name]\
+- Windows: %USERPROFILE%\\config\\[app_name]\\
 - Unix: ~/.config/[app_name]/
 
 The state is stored in INI format with JSON serialization for values,
