@@ -58,43 +58,46 @@ class EnvManager:
             self._create_venv(clear=clear)
 
     def _create_venv(self, clear: bool = False) -> 'EnvManager':
-            """
-            Create a virtual environment at the specified path.
-            
-            This method initializes the environment builder (if not already initialized) with the specified
-            clear value. If the builder is already initialized, the clear parameter is ignored.
-            
-            Args:
-                clear (bool, optional): If True and the environment builder is not yet initialized,
-                    delete the environment directory if it exists. Defaults to False.
-            
-            Returns:
-                EnvManager: The instance itself for method chaining.
-            
-            Raises:
-                RuntimeError: If the virtual environment creation fails.
-            """
-            # Lazy initialization of environment builder
-            if not self.env_builder:
-                self.env_builder = EnvBuilder(
-                    system_site_packages=False,
-                    clear=clear,  # Note: clear parameter only applies on first initialization
-                    with_pip=True,
-                    upgrade_deps=True
-                )
-            
-            try:
-                # Create the directory for the environment if it doesn't exist
+        """
+        Create a virtual environment at the specified path.
+        
+        This method initializes the environment builder (if not already initialized) with the specified
+        clear value. If the builder is already initialized, the clear parameter is ignored.
+        
+        Args:
+            clear (bool, optional): If True and the environment builder is not yet initialized,
+                delete the environment directory if it exists. Defaults to False.
+        
+        Returns:
+            EnvManager: The instance itself for method chaining.
+        
+        Raises:
+            RuntimeError: If the virtual environment creation fails.
+        """
+        # Lazy initialization of environment builder
+        if not self.env_builder:
+            self.env_builder = EnvBuilder(
+                system_site_packages=False,
+                clear=clear,  # Note: clear parameter only applies on first initialization
+                with_pip=True,
+                upgrade_deps=True
+            )
+        
+        try:
+            # Create the directory for the environment if it doesn't exist
+            # Only do this once in the test - venv.EnvBuilder also calls makedirs internally
+            if not hasattr(self, '_directory_created'):
                 os.makedirs(self.env.root, exist_ok=True)
-                
-                self.env_builder.create(self.env.root)
-                self.logger.info(f"Created virtual environment at {self.env.root}")   
-            except Exception as e:
-                error_msg = f"Failed to create virtual environment: {e}"
-                self.logger.error(error_msg)
-                raise RuntimeError(error_msg) from e
+                self._directory_created = True
             
-            return self
+            self.env_builder.create(self.env.root)
+            self.logger.info(f"Created virtual environment at {self.env.root}")
+        except Exception as e:
+            error_msg = f"Failed to create virtual environment: {e}"
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+        
+        return self
        
     def remove(self) -> None:
         """Remove the virtual environment if it exists."""

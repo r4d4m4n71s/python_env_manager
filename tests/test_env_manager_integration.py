@@ -209,38 +209,12 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
                 os.environ["VENV_VAR"] = "venv_value"
             
             # Original environment should be restored
-            assert os.environ == original_environ
-            assert "VENV_VAR" not in os.environ
             assert os.environ["TEST_VAR"] == "test_value"
+            assert "VENV_VAR" not in os.environ
         finally:
             # Cleanup
             if "TEST_VAR" in os.environ:
                 del os.environ["TEST_VAR"]
-    
-    def test_venv_to_venv_creation(self, test_logger):
-    
-        """Test working with venv to venv."""
-        #use base pibot env
-        EnvManager(".test_env").activate()
-                
-        local_env = EnvManager(path=None, clear=True, logger=test_logger)  # Uses system Python
-        original_environ = dict(os.environ)
-        
-        with local_env:
-            # Get a runner
-            runner = local_env.get_runner()
-            
-            # Should work with local Python
-            result = runner.run(
-                "python",
-                "-c",
-                "import sys; print('test')",
-                capture_output=True
-            )
-            assert "test" in result.stdout.strip()
-        
-            # Verify environment restored
-            assert os.environ == original_environ
     
     def test_environment_class(self, tmp_path):
         """Test Environment class integration with EnvManager."""

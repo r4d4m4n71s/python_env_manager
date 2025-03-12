@@ -62,14 +62,22 @@ class PackageManager:
         try:
             # Build command with options
             cmd = ["pip", "install", package]
+            
+            # Handle pip_options if provided
+            if 'pip_options' in options:
+                pip_options = options.pop('pip_options')
+                if isinstance(pip_options, list):
+                    cmd.extend(pip_options)
+            
+            # Process other options
             for key, value in options.items():
                 if value is True:
                     cmd.append(f"--{key.replace('_', '-')}")
                 elif value is not False and value is not None:
                     cmd.append(f"--{key.replace('_', '-')}={value}")
                     
-            # Execute command
-            self.runner.run(*cmd)
+            # Execute command with capture_output=True
+            self.runner.run(*cmd, capture_output=True)
             self.logger.info(f"Successfully installed package: {package}")
             return self
             
@@ -104,8 +112,8 @@ class PackageManager:
                 elif value is not False and value is not None:
                     cmd.append(f"--{key.replace('_', '-')}={value}")
                     
-            # Execute command
-            self.runner.run(*cmd)
+            # Execute command with capture_output=True
+            self.runner.run(*cmd, capture_output=True)
             self.logger.info(f"Successfully uninstalled package: {package}")
             return self
             
@@ -168,12 +176,14 @@ class PackageManager:
             self.logger.error(f"Failed to list packages: {e}")
             raise RuntimeError("Failed to list packages") from e
             
-    def install_pkg(self, package: str) -> 'InstallPkgContextManager':
+    def install_pkg(self, *packages, **options) -> 'InstallPkgContextManager':
         """
-        Install a package temporarily using a context manager.
+        Install packages temporarily using a context manager.
         
         Args:
-            package: The package to install.
+            *packages: One or more packages to install.
+            **options: Additional options for installation.
+                pip_options: List of pip options to pass to the install command.
             
         Returns:
             InstallPkgContextManager: A context manager for temporary package installation.
@@ -184,34 +194,44 @@ class PackageManager:
         if not self.runner:
             raise ValueError("Package manager not configured with a runner")
             
-        return InstallPkgContextManager(self, package)
+        if not packages:
+            raise ValueError("At least one package must be specified")
+            
+        return InstallPkgContextManager(self, packages, **options)
 
 
 class InstallPkgContextManager:
     """Context manager for temporary package installation."""
     
-    def __init__(self, pkg_manager: PackageManager, package: str):
+    def __init__(self, pkg_manager, packages, **options):
         """
-        Initialize and install the package.
+        Initialize the context manager.
         
         Args:
-            pkg_manager: The package manager to use.
-            package: The package to install.
-            
-        Raises:
-            RuntimeError: If package installation fails.
+            pkg_manager: The package manager to use or a runner.
+            packages: The package(s) to install - can be a single string or list.
+            **options: Additional options for installation.
         """
-        self.pkg_manager = pkg_manager
-        self.package = package
+        # Handle both PackageManager and direct runner for backward compatibility
+        if isinstance(pkg_manager, PackageManager):
+            self.pkg_manager = pkg_manager
+            self.runner = pkg_manager.runner
+        else:
+            # Direct runner mode (for tests)
+            self.runner = pkg_manager
+            self.pkg_manager = None
+        
+        # Convert to a tuple if a single package is passed
+        if isinstance(packages, (list, tuple)):
+            self.packages = packages
+        else:
+            self.packages = (packages,)
+            
+        self.options = options
         
         # For backward compatibility with tests
         self._env_manager = pkg_manager
-        
-        try:
-            self.pkg_manager.install(self.package)
-        except Exception as e:
-            self.pkg_manager.logger.error(f"Failed to install package {self.package}")
-            raise RuntimeError(f"Failed to install package {self.package}") from e
+        self._installed = False
             
     @property
     def env_manager(self):
@@ -219,14 +239,26 @@ class InstallPkgContextManager:
         return self._env_manager
             
     def __enter__(self) -> 'InstallPkgContextManager':
-        """Context manager entry."""
-        return self
+        """Context manager entry - install the packages."""
+        try:
+            for package in self.packages:
+                pip_options = self.options.get('pip_options', [])
+                self.pkg_manager.install(package, pip_options=pip_options)
+            self._installed = True
+            return self
+        except Exception as e:
+            self.pkg_manager.logger.error(f"Failed to install packages {self.packages}")
+            raise RuntimeError(f"Failed to install packages {self.packages}") from e
             
     def __exit__(self, exc_type: Optional[type], exc_val: Optional[Exception],
                  exc_tb: Optional[Any]) -> None:
-        """Context manager exit - uninstall the package."""
+        """Context manager exit - uninstall the packages."""
+        if not self._installed:
+            return
+            
         try:
-            self.pkg_manager.uninstall(self.package)
+            for package in self.packages:
+                self.pkg_manager.uninstall(package)
         except Exception as e:
-            self.pkg_manager.logger.error(f"Failed to uninstall package {self.package}")
-            raise RuntimeError(f"Failed to uninstall package {self.package}") from e
+            self.pkg_manager.logger.error(f"Failed to uninstall packages {self.packages}")
+            raise RuntimeError(f"Failed to uninstall packages {self.packages}") from e
