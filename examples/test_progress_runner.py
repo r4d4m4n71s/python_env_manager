@@ -27,12 +27,12 @@ def main():
     
     # Define test commands with properly formatted Python code for -c option
     # When using -c, make sure all code is on a single line with no indentation
-    short_cmd = ["python", "-c", "import time; print('Starting...'); time.sleep(2); print('Done!')"]
+    short_cmd = ["python", "-c", "import time; print('Starting...'); time.sleep(1); print('Done!')"]
     
     # Use list comprehensions instead of traditional for loops to avoid syntax issues
     progress_cmd = [
         "python", "-c",
-        "import time, sys; print('Starting...'); [print(f'Processing item {i+1}/10', flush=True) or time.sleep(2) for i in range(10)]; print('Done!')"
+        "import time, sys; print('Starting...'); [print(f'Processing item {i+1}/10', flush=True) or time.sleep(1) for i in range(10)]; print('Done!')"
     ]
     
     error_cmd = [

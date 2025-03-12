@@ -14,7 +14,7 @@ import pytest
 
 from env_manager import (
     Environment, EnvManager, InstallPkgContextManager,
-    PackageManager
+    PackageManager, RunnerFactory, IRunner, Runner
 )
 
 
@@ -167,155 +167,322 @@ class TestEnvManager:
             assert manager.env is mock_environment
             patched_create_venv.assert_called_once()
 
-    def test_manager_init_with_local_env(self, mock_environment, mock_filesystem, mock_env_builder):
-        """Test EnvManager initialization with local env."""
+class TestEnvManager:
+    """Tests for the EnvManager class."""
+
+    @pytest.fixture
+    def mock_env_builder(self):
+        """Fixture to mock EnvBuilder."""
+        with mock.patch("venv.EnvBuilder") as mock_builder:
+            mock_instance = mock_builder.return_value
+            mock_instance.create.return_value = None
+            yield mock_builder
+
+    @pytest.fixture
+    def mock_environment(self):
+        """Fixture to mock Environment class."""
+        # Create a mock environment
+        mock_env = mock.MagicMock()
+        mock_env.root = "/test/venv/path"
+        mock_env.bin = "/test/venv/path/bin"
+        mock_env.lib = "/test/venv/path/lib"
+        mock_env.python = "/test/venv/path/bin/python"
+        mock_env.name = "path"
+        mock_env.is_virtual = True
+        
+        # Patch the Environment class to return our mock
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_env) as _:
+            yield mock_env
+
+    @pytest.fixture
+    def mock_subprocess(self):
+        """Fixture to mock subprocess module."""
+        with mock.patch("env_manager.runners.runner.subprocess") as mock_subproc:
+            mock_result = mock.MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "success"
+            mock_subproc.run.return_value = mock_result
+            mock_subproc.CalledProcessError = subprocess.CalledProcessError
+            mock_subproc.Popen.return_value.communicate.return_value = ("VAR=value", "")
+            mock_subproc.Popen.return_value.returncode = 0
+            yield mock_subproc
+
+    @pytest.fixture
+    def mock_os_path(self):
+        """Fixture to mock os.path functions."""
+        with mock.patch("os.path.exists", return_value=True), \
+             mock.patch("os.path.join", side_effect=os.path.join), \
+             mock.patch("os.makedirs"):
+            yield
+
+    @pytest.fixture
+    def mock_shutil(self):
+        """Fixture to mock shutil module."""
+        with mock.patch("shutil.rmtree") as mock_rmtree:
+            yield mock_rmtree
+
+    def test_init_with_virtual_env(self, mock_environment, mock_os_path, mock_env_builder):
+        """Test that EnvBuilder is called when initializing with a virtual environment."""
+        # Initialize the manager (mock_environment.is_virtual is True by default)
+        with mock.patch('env_manager.env_manager.EnvBuilder', return_value=mock_env_builder.return_value):
+            manager = EnvManager("/test/venv/path")
+        
+        # Verify environment is set and EnvBuilder was called
+        assert manager.env is mock_environment
+        assert mock_env_builder.return_value.create.called
+
+    def test_init_with_local_env(self, mock_env_builder, mock_environment, mock_os_path):
+        """Test that EnvBuilder is not called when initializing with a local environment."""
+        # Set environment to non-virtual
         mock_environment.is_virtual = False
+        
+        # Initialize the manager with a patched EnvBuilder that will
+        # allow us to verify it wasn't called
         with mock.patch('env_manager.env_manager.EnvBuilder', return_value=mock_env_builder.return_value) as patched_builder:
             manager = EnvManager("/test/local/path")
+            
+            # Verify environment is set and EnvBuilder was not called
             assert manager.env is mock_environment
+            
+            # Since we're using our own mock environment and we set is_virtual to False,
+            # the code should skip creating the virtual environment
             patched_builder.return_value.create.assert_not_called()
 
-    # EnvManager venv creation tests
-    
-    def test_manager_create_venv(self, mock_environment, mock_filesystem, mock_env_builder):
-        """Test creating a virtual environment."""
-        custom_builder = mock.MagicMock()
+    def test_create_venv(self, mock_environment, mock_os_path, mock_env_builder):
+        """Test creating a virtual environment with specific parameters."""
+        # Create a custom builder for the test
+        custom_builder = mock.MagicMock(spec=EnvBuilder)
         
+        # Patch Environment to return our mock and initialize the manager
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
-            # Skip venv creation during initialization
-            with mock.patch.object(EnvManager, '_create_venv', return_value=None):
-                manager = EnvManager("/test/venv/path", env_builder=custom_builder)
-            
-            # Test actual create_venv method
-            manager._create_venv(clear=True)
-            custom_builder.create.assert_called_once_with(mock_environment.root)
+            manager = EnvManager("/test/venv/path", env_builder=custom_builder)
+        
+        # Reset any calls that happened during initialization
+        custom_builder.create.reset_mock()
+        
+        # Call the method under test
+        manager._create_venv(clear=True)
+        
+        # Verify the custom builder was used
+        custom_builder.create.assert_called_once_with(mock_environment.root)
 
-    def test_manager_create_venv_error(self, mock_environment, mock_filesystem, mock_env_builder):
-        """Test error handling in venv creation."""
-        error_builder = mock.MagicMock()
-        error_builder.create.side_effect = Exception("Creation failed")
+    def test_create_venv_with_custom_builder(self, mock_environment, mock_os_path, mock_env_builder):
+        """Test creating a virtual environment with a custom EnvBuilder."""
+        # Create a custom builder for the test
+        custom_builder = mock.MagicMock(spec=EnvBuilder)
         
+        # Patch Environment to return our mock and initialize the manager
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path", env_builder=custom_builder)
+        
+        # Reset any calls that happened during initialization
+        mock_env_builder.reset_mock()
+        custom_builder.create.reset_mock()
+        
+        # Call the method under test
+        manager._create_venv()
+        
+        # Verify the custom builder was used
+        custom_builder.create.assert_called_once_with(mock_environment.root)
+
+    def test_create_venv_error(self, mock_env_builder, mock_environment, mock_os_path):
+        """Test error handling when creating a virtual environment fails."""
+        # Create a mock builder without an exception first
+        mock_builder = mock.MagicMock(spec=EnvBuilder)
+        
+        # Patch Environment to return our mock and create the manager
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            # Skip creating venv during initialization
             with mock.patch.object(EnvManager, '_create_venv', return_value=None):
-                manager = EnvManager("/test/venv/path", env_builder=error_builder)
+                manager = EnvManager("/test/venv/path", env_builder=mock_builder)
             
+            # Now set up the mock to raise an exception
+            mock_builder.create.side_effect = Exception("Creation failed")
+            
+            # Verify that RuntimeError is raised with the correct message
             with pytest.raises(RuntimeError, match="Failed to create virtual environment"):
                 manager._create_venv()
 
-    # EnvManager removal tests
-    
-    def test_manager_remove(self, mock_environment, mock_filesystem, mock_create_venv):
-        """Test removing a virtual environment."""
+    def test_remove(self, mock_environment, mock_shutil, mock_env_builder):
+        """Test that remove method doesn't use EnvBuilder."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
+            mock_env_builder.reset_mock()
             
+            # Execute remove method (with is_active mocked to False)
             with mock.patch.object(manager, "is_active", return_value=False):
                 manager.remove()
-                mock_filesystem.assert_called_once_with(mock_environment.root)
+            
+            # Verify shutil.rmtree was called
+            mock_shutil.assert_called_once_with(mock_environment.root)
 
-    def test_manager_remove_active_env(self, mock_environment, mock_filesystem, mock_create_venv):
+    def test_remove_active_env(self, mock_environment, mock_shutil, mock_env_builder):
         """Test removing an active virtual environment."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
+            mock_env_builder.reset_mock()
+            
+            # Create a mock for the deactivate method
             mock_deactivate = mock.MagicMock()
             
+            # Mock is_active to return True and replace deactivate with our mock
             with mock.patch.object(manager, "is_active", return_value=True), \
                  mock.patch.object(manager, "deactivate", mock_deactivate):
                 manager.remove()
-                mock_deactivate.assert_called_once()
-                mock_filesystem.assert_called_once_with(mock_environment.root)
+            
+            # Verify deactivate was called and shutil.rmtree was called
+            mock_deactivate.assert_called_once()
+            mock_shutil.assert_called_once_with(mock_environment.root)
 
     def test_manager_remove_error(self, mock_environment, mock_filesystem, mock_create_venv):
         """Test error handling when removing a virtual environment."""
         mock_filesystem.side_effect = Exception("Removal failed")
         
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
+            # Verify that RuntimeError is raised with the correct message
             with mock.patch.object(manager, "is_active", return_value=False), \
                  pytest.raises(RuntimeError, match="Failed to remove virtual environment"):
                 manager.remove()
 
-    # EnvManager run tests
-    
-    def test_manager_run_with_activation(self, mock_environment, mock_subprocess, mock_filesystem, mock_create_venv):
-        """Test running a command with activation script."""
+    def test_prepare_command_with_activation_script(self, mock_environment, mock_subprocess, mock_os_path, mock_env_builder):
+        """Test preparing a command with an activation script."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
             # Test on Windows
-            with mock.patch("os.name", "nt"), \
-                 mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                manager.run("pip", "install", "package")
-                cmd = mock_subprocess.run.call_args[0][0]
+            with mock.patch("os.name", "nt"):
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, str)
                 assert "activate.bat" in cmd and "pip install package" in cmd
+                assert kwargs["shell"] is True
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
 
             # Test on Unix
-            mock_subprocess.run.reset_mock()
-            with mock.patch("os.name", "posix"), \
-                 mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                manager.run("pip", "install", "package")
-                cmd = mock_subprocess.run.call_args[0][0]
+            with mock.patch("os.name", "posix"):
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, str)
                 assert "source" in cmd and "activate" in cmd and "pip install package" in cmd
+                assert kwargs["shell"] is True
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
+                assert kwargs["executable"] == '/bin/bash'
 
-    def test_manager_run_without_activation(self, mock_environment, mock_subprocess, mock_create_venv):
-        """Test running a command without activation script."""
+    def test_prepare_command_without_activation_script(self, mock_environment, mock_subprocess, mock_env_builder):
+        """Test preparing a command without an activation script."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
             with mock.patch("os.path.exists", return_value=False), \
-                 mock.patch("sys.executable", mock_environment.python), \
-                 mock.patch('subprocess.run', side_effect=mock_subprocess.run):
+                 mock.patch("sys.executable", mock_environment.python):
                 
-                manager.run("python", "-c", "print('hello')")
+                # Test python command
+                cmd, kwargs = manager.prepare_command("python", "-c", "print('hello')")
                 
-                args, kwargs = mock_subprocess.run.call_args
-                command = args[0]
+                # Verify command format is correct
+                assert isinstance(cmd, list)
+                assert cmd[0] == mock_environment.python
+                assert "-c" in cmd and "print('hello')" in cmd
                 
-                # Check that python executable is used
-                if isinstance(command, list):
-                    assert command[0] == mock_environment.python
-                else:
-                    assert mock_environment.python in command
+                # Verify kwargs
+                assert kwargs["shell"] is False
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
                 
-                # Verify options are passed correctly
-                assert all([kwargs.get('text'), kwargs.get('check'), kwargs.get('capture_output')])
+                # Test pip command
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, list)
+                # The first element should be either the pip path in the environment bin directory
+                # or just 'pip' if it doesn't exist
+                assert cmd[0].endswith("pip") or cmd[0].endswith("pip.exe")
+                assert "install" in cmd and "package" in cmd
 
-    def test_manager_run_error(self, mock_environment, mock_subprocess, mock_filesystem, mock_create_venv):
-        """Test error handling when running a command fails."""
-        mock_subprocess.run.side_effect = subprocess.CalledProcessError(
-            1, "pip install package", stderr="Installation failed"
-        )
-        
-        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment), \
-             mock.patch('subprocess.run', side_effect=mock_subprocess.run):
+    def test_prepare_command_error(self, mock_environment, mock_os_path, mock_env_builder):
+        """Test error handling when preparing a command with invalid input."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
-            with pytest.raises(subprocess.CalledProcessError):
-                manager.run("pip", "install", "package")
+            # Test with empty command args
+            with pytest.raises(ValueError, match="No command provided"):
+                manager.prepare_command()
 
     # EnvManager activate/deactivate tests
     
     def test_manager_activate(self, mock_environment, mock_create_venv):
         """Test activating a virtual environment."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
-            # Create clean test environment
-            clean_env = {}
-            clean_path = []
-            
             with mock.patch("os.path.exists", return_value=True), \
                  mock.patch.object(manager, "is_active", return_value=False), \
-                 mock.patch.dict(os.environ, clean_env, clear=True), \
-                 mock.patch("sys.path", clean_path[:]):
+                 mock.patch.dict(os.environ, {}, clear=True), \
+                 mock.patch("sys.path", []):
                 
                 manager.activate()
                 
-                # Check environment variables were set correctly
+                # Verify environment variables and sys.path were updated correctly
                 assert os.environ["VIRTUAL_ENV"] == mock_environment.root
                 assert mock_environment.bin in os.environ["PATH"]
                 assert os.path.join(mock_environment.lib, "site-packages") in sys.path
+                assert mock_environment.lib in sys.path
+
+    def test_activate_already_active(self, mock_environment, mock_env_builder):
+        """Test activating an already active virtual environment."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path")
+            
+            with mock.patch.object(manager, "is_active", return_value=True), \
+                 mock.patch.dict(os.environ, {}), \
+                 mock.patch("sys.path", []):
+                manager.activate()
+                
+                # Verify environment was not modified
+                assert "VIRTUAL_ENV" not in os.environ
+                assert not sys.path
+
+    def test_activate_error(self, mock_environment, mock_env_builder):
+        """Test error handling when activating a virtual environment fails."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path")
+            
+            with mock.patch("os.path.exists", return_value=True), \
+                 mock.patch.object(manager, "is_active", return_value=False), \
+                 mock.patch.dict(os.environ, {}, clear=True), \
+                 mock.patch("sys.path", []):
+                
+                # Mock os.environ to raise an exception when updating PATH
+                def mock_environ_get(key, default=None):
+                    if key == "PATH":
+                        raise Exception("Activation failed")
+                    return default
+                
+                with mock.patch.object(os.environ, "get", side_effect=mock_environ_get), \
+                     pytest.raises(RuntimeError, match="Failed to activate environment"):
+                    manager.activate()
+                
+                # Verify environment was restored
+                assert "VIRTUAL_ENV" not in os.environ
+                assert not sys.path
 
     def test_manager_activate_already_active(self, mock_environment, mock_create_venv):
         """Test activating an already active environment."""
@@ -337,107 +504,166 @@ class TestEnvManager:
 
     def test_manager_deactivate(self, mock_environment, mock_create_venv):
         """Test deactivating a virtual environment."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
             # Set up original environment state
             original_env = {"PATH": "/original/path"}
             original_path = ["/original/site-packages"]
-            manager._original_env = original_env.copy()
-            manager._original_path = original_path.copy()
-            
-            # Set up current environment
-            test_env = {"VIRTUAL_ENV": mock_environment.root, "PATH": f"{mock_environment.bin}:/other/path"}
-            test_path = [os.path.join(mock_environment.lib, "site-packages"), mock_environment.lib]
+            manager._original_env = original_env
+            manager._original_path = original_path
             
             with mock.patch.object(manager, "is_active", return_value=True), \
-                 mock.patch.dict(os.environ, test_env, clear=True), \
-                 mock.patch("sys.path", test_path[:]):
-                
+                 mock.patch.dict(os.environ, {"VIRTUAL_ENV": mock_environment.root,
+                                             "PATH": f"{mock_environment.bin}:/other/path"}), \
+                 mock.patch("sys.path", [os.path.join(mock_environment.lib, "site-packages"),
+                                        mock_environment.lib]):
                 manager.deactivate()
                 
-                # Environment should be restored
+                # Verify environment was restored
                 assert os.environ == original_env
                 assert sys.path == original_path
 
-    # EnvManager context manager and utility tests
-    
-    def test_manager_context_manager(self, mock_environment, mock_create_venv):
-        """Test EnvManager as a context manager."""
+    def test_deactivate_not_active(self, mock_environment, mock_env_builder):
+        """Test deactivating a non-active virtual environment."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path")
+            
+            with mock.patch.object(manager, "is_active", return_value=False):
+                original_env = dict(os.environ)
+                original_path = list(sys.path)
+                
+                manager.deactivate()
+                
+                # Verify environment was not modified
+                assert dict(os.environ) == original_env
+                assert list(sys.path) == original_path
+
+    def test_deactivate_error(self, mock_environment, mock_env_builder):
+        """Test error handling when deactivating a virtual environment fails."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path")
+            
+            with mock.patch.object(manager, "is_active", return_value=True), \
+                 mock.patch.object(os.environ, "clear", side_effect=Exception("Deactivation failed")), \
+                 pytest.raises(RuntimeError, match="Failed to deactivate environment"):
+                manager.deactivate()
+
+    def test_manager_is_active(self, mock_environment, mock_create_venv):
+        """Test checking if a virtual environment is active."""
+        # Create manager with our mock environment
+        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
+            manager = EnvManager("/test/venv/path")
+            
+            # Test all three cases for is_active
+            with mock.patch.dict(os.environ, {"VIRTUAL_ENV": mock_environment.root}):
+                assert manager.is_active() is True
+            
+            with mock.patch.dict(os.environ, {"VIRTUAL_ENV": "/other/path"}):
+                assert manager.is_active() is False
+            
+            with mock.patch.dict(os.environ, {}, clear=True):
+                assert manager.is_active() is False
+
+    def test_context_manager(self, mock_environment, mock_env_builder):
+        """Test using EnvManager as a context manager."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
             with mock.patch.object(manager, "activate") as mock_activate, \
                  mock.patch.object(manager, "deactivate") as mock_deactivate:
+                # Configure mock_activate to return manager as the real activate method does
                 mock_activate.return_value = manager
-                
                 with manager as env:
                     assert env is manager
                     mock_activate.assert_called_once()
-                
                 mock_deactivate.assert_called_once()
 
-    def test_manager_is_active(self, mock_environment, mock_create_venv):
-        """Test checking if a virtual environment is active."""
+    def test_get_runner(self, mock_environment, mock_env_builder):
+        """Test getting a runner."""
+        # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
-            # Test active environment
-            with mock.patch.dict(os.environ, {"VIRTUAL_ENV": mock_environment.root}, clear=True):
-                assert manager.is_active() is True
-            
-            # Test different active environment
-            with mock.patch.dict(os.environ, {"VIRTUAL_ENV": "/other/path"}, clear=True):
-                assert manager.is_active() is False
-            
-            # Test no active environment
-            with mock.patch.dict(os.environ, {}, clear=True):
-                assert manager.is_active() is False
-
-    def test_manager_install_pkg(self, mock_environment, mock_subprocess, mock_create_venv):
-        """Test installing a package."""
-        with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
-            manager = EnvManager("/test/venv/path")
-            
-            # Mock dependencies
+            # Mock the runner factory
             mock_runner = mock.MagicMock()
-            mock_pkg_manager = mock.MagicMock()
-            mock_ctx_manager = mock.MagicMock()
             
-            with mock.patch("env_manager.env_manager.RunnerFactory.create", return_value=mock_runner), \
-                 mock.patch("env_manager.env_manager.PackageManager", return_value=mock_pkg_manager), \
-                 mock.patch("env_manager.package_manager.InstallPkgContextManager", return_value=mock_ctx_manager):
-                
+            with mock.patch("env_manager.env_manager.RunnerFactory.create", return_value=mock_runner):
+                # Configure mock
                 mock_runner.with_env.return_value = mock_runner
-                mock_pkg_manager.install_pkg.return_value = mock_ctx_manager
                 
-                result = manager.install_pkg("package")
-                
-                # Verify correct methods were called
+                # Get a runner from the environment manager
+                runner = manager.get_runner()
+                assert runner is mock_runner
                 mock_runner.with_env.assert_called_once_with(manager)
-                mock_pkg_manager.install_pkg.assert_called_once_with("package")
-                assert result is mock_ctx_manager
+                
+                # Test with different runner type
+                mock_runner.reset_mock()
+                runner = manager.get_runner("progress")
+                mock_runner.with_env.assert_called_once_with(manager)
+                
+                # Mock factory should be called with correct arguments
+                from env_manager.runners.runner_factory import RunnerFactory
+                RunnerFactory.create.assert_called_with("progress")
 
-    # InstallPkgContextManager tests
-    
-    def test_install_pkg_context_manager_init(self, mock_pkg_manager):
+
+class TestInstallPkgContextManager:
+    """Tests for the InstallPkgContextManager class."""
+
+    @pytest.fixture
+    def mock_pkg_manager(self):
+        """Fixture to mock PackageManager."""
+        mock_manager = mock.MagicMock()
+        mock_manager.install.return_value = mock_manager
+        mock_manager.uninstall.return_value = mock_manager
+        mock_manager.logger = mock.MagicMock()
+        return mock_manager
+
+    def test_init(self, mock_pkg_manager):
         """Test initializing InstallPkgContextManager."""
         ctx = InstallPkgContextManager(mock_pkg_manager, "package")
         assert ctx.pkg_manager is mock_pkg_manager
         assert ctx.package == "package"
         mock_pkg_manager.install.assert_called_once_with("package")
 
-    def test_install_pkg_context_manager_usage(self, mock_pkg_manager):
+    def test_init_error(self, mock_pkg_manager):
+        """Test error handling when package installation fails."""
+        mock_pkg_manager.install.side_effect = RuntimeError("Failed to install package package")
+        
+        with pytest.raises(RuntimeError, match="Failed to install package"):
+            InstallPkgContextManager(mock_pkg_manager, "package")
+
+    def test_context_manager(self, mock_pkg_manager):
         """Test using InstallPkgContextManager as a context manager."""
         ctx = InstallPkgContextManager(mock_pkg_manager, "package")
         
-        # Reset mocks to clear initialization calls
+        # Reset the mock to clear the call from __init__
         mock_pkg_manager.install.reset_mock()
         mock_pkg_manager.uninstall.reset_mock()
         
         with ctx as result:
             assert result is ctx
-            mock_pkg_manager.install.assert_not_called()  # Already installed in __init__
+            # Package is already installed in __init__, so no calls here
+            mock_pkg_manager.install.assert_not_called()
         
-        # Uninstall should be called on exit
+        # Check that uninstall was called on exit
         mock_pkg_manager.uninstall.assert_called_once_with("package")
+
+    def test_context_manager_uninstall_error(self, mock_pkg_manager):
+        """Test error handling when package uninstallation fails."""
+        ctx = InstallPkgContextManager(mock_pkg_manager, "package")
+        
+        # Reset the mock to clear the call from __init__
+        mock_pkg_manager.install.reset_mock()
+        mock_pkg_manager.uninstall.reset_mock()
+        
+        # Set up the error for uninstallation
+        mock_pkg_manager.uninstall.side_effect = RuntimeError("Failed to uninstall package package")
+        
+        with pytest.raises(RuntimeError, match="Failed to uninstall package"):
+            with ctx:
+                pass

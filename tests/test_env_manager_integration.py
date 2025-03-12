@@ -11,7 +11,7 @@ import logging
 import pytest
 import time
 from pathlib import Path
-from env_manager import EnvManager, Environment, InstallPkgContextManager, PythonLocal
+from env_manager import EnvManager, Environment, InstallPkgContextManager, PackageManager
 
 class TestEnvManagerIntegration:
     """Integration tests for EnvManager testing complete workflows."""
@@ -78,24 +78,29 @@ class TestEnvManagerIntegration:
     def test_package_installation(self, env_manager):
         """Test basic package installation."""
         with env_manager:
-            # Install a package
-            env_manager.run("pip", "install", "setuptools", capture_output=True)
+            # Get a runner and install a package
+            runner = env_manager.get_runner()
+            runner.run("pip", "install", "setuptools", capture_output=True)
             
             # Verify installation via pip list
-            result = env_manager.run("pip", "list", capture_output=True)
+            result = runner.run("pip", "list", capture_output=True)
             assert "setuptools" in result.stdout
     
     def test_install_pkg_context_manager(self, env_manager):
         """Test the install_pkg context manager."""
         with env_manager:
+            # Get a runner and package manager
+            runner = env_manager.get_runner()
+            pkg_manager = PackageManager().with_runner(runner)
+            
             # Use the context manager to install a package
-            with env_manager.install_pkg("wheel"):
+            with pkg_manager.install_pkg("wheel"):
                 # Verify package is installed
-                result = env_manager.run("pip", "list", capture_output=True)
+                result = runner.run("pip", "list", capture_output=True)
                 assert "wheel" in result.stdout
             
             # After context exit, package should be uninstalled
-            result = env_manager.run("pip", "list", capture_output=True)
+            result = runner.run("pip", "list", capture_output=True)
             assert "wheel" not in result.stdout
     
     def test_script_execution(self, env_manager, tmp_path):
@@ -111,8 +116,11 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
         script_path.write_text(script_content)
         
         with env_manager:
+            # Get a runner
+            runner = env_manager.get_runner()
+            
             # Execute the script
-            result = env_manager.run("python", str(script_path), capture_output=True)
+            result = runner.run("python", str(script_path), capture_output=True)
             
             # Verify environment is correctly used
             env_root = os.path.abspath(env_manager.env.root)
@@ -122,33 +130,36 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
             assert normalized_env_root in normalized_stdout
             
             # Test different run options
-            result = env_manager.run("python", "--version", capture_output=True)
+            result = runner.run("python", "--version", capture_output=True)
             assert "Python" in result.stdout
             
             # Test with check=False
-            result = env_manager.run(
+            result = runner.run(
                 "python", "-c", "import sys; sys.exit(1)",
                 capture_output=True, check=False
             )
             assert result.returncode == 1
             
             # Test with text=False
-            result = env_manager.run(
+            result = runner.run(
                 "python", "-c", "print('hello')",
                 capture_output=True, text=False
             )
-            assert isinstance(result.stdout, bytes)        
+            assert isinstance(result.stdout, bytes)
     
     def test_error_handling(self, env_manager):
         """Test error handling in various scenarios."""
         with env_manager:
+            # Get a runner
+            runner = env_manager.get_runner()
+            
             # Test invalid package installation
             with pytest.raises(subprocess.CalledProcessError):
-                env_manager.run("pip", "install", "nonexistent_package_name_12345")
+                runner.run("pip", "install", "nonexistent_package_name_12345")
             
             # Test command execution failure
             with pytest.raises(subprocess.CalledProcessError):
-                env_manager.run("python", "-c", "raise Exception('test error')")
+                runner.run("python", "-c", "raise Exception('test error')")
     
     def test_multiple_environments(self, tmp_path, test_logger):
         """Test managing multiple environments simultaneously."""
@@ -163,21 +174,25 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
         
         # Install different packages in each environment
         with env1:
-            env1.run("pip", "install", "setuptools", capture_output=True)
+            runner1 = env1.get_runner()
+            runner1.run("pip", "install", "setuptools", capture_output=True)
         
         with env2:
-            env2.run("pip", "install", "wheel", capture_output=True)
+            runner2 = env2.get_runner()
+            runner2.run("pip", "install", "wheel", capture_output=True)
         
         # Verify environments remain separate
         with env1:
-            result = env1.run("pip", "list", capture_output=True)
+            runner1 = env1.get_runner()
+            result = runner1.run("pip", "list", capture_output=True)
             assert "setuptools" in result.stdout
             assert "wheel" not in result.stdout
         
         with env2:
-            result = env2.run("pip", "list", capture_output=True)
+            runner2 = env2.get_runner()
+            result = runner2.run("pip", "list", capture_output=True)
             assert "wheel" in result.stdout
-            assert "setuptools" not in result.stdout   
+            assert "setuptools" not in result.stdout
     
     def test_environment_variables(self, env_manager):
         """Test environment variables preservation and restoration."""
@@ -212,8 +227,11 @@ print("Virtual env:", os.environ.get('VIRTUAL_ENV', 'None'))
         original_environ = dict(os.environ)
         
         with local_env:
+            # Get a runner
+            runner = local_env.get_runner()
+            
             # Should work with local Python
-            result = local_env.run(
+            result = runner.run(
                 "python",
                 "-c",
                 "import sys; print('test')",

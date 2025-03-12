@@ -4,7 +4,7 @@ Runner Factory Module
 This module provides a factory for creating command runners.
 """
 
-from typing import Dict, List, Type
+from typing import Any, Dict, List, Type
 from env_manager.runners.irunner import IRunner
 
 class RunnerFactory:
@@ -29,12 +29,13 @@ class RunnerFactory:
         cls._runners[name] = runner_class
     
     @classmethod
-    def create(cls, name: str) -> IRunner:
+    def create(cls, name: str, **kwargs: Any) -> IRunner:
         """
         Create a runner instance by name.
         
         Args:
             name: The name of the runner to create.
+            **kwargs: Additional arguments to pass to the runner constructor.
             
         Returns:
             IRunner: A new instance of the requested runner.
@@ -44,7 +45,7 @@ class RunnerFactory:
         """
         if name not in cls._runners:
             raise ValueError(f"Unknown runner type: {name}. Available types: {', '.join(cls._runners.keys())}")
-        return cls._runners[name]()
+        return cls._runners[name](**kwargs)
     
     @classmethod
     def available_runners(cls) -> List[str]:

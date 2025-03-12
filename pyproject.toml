@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-env-manager"
-version = "0.1.1"
+version = "1.0.0"
 description = "A powerful, cross-platform tool for managing Python virtual environments with a clean, intuitive API."
 readme = "README.md"
 authors = [
@@ -89,6 +89,6 @@ exclude_lines = [
 ]
 
 [tool.bumpversion]
-current_version = "0.1.1"
+current_version = "1.0.0"
 commit = true
 tag = true

@@ -1,13 +1,13 @@
-# Environment Manager Architecture Redesign Plan
+# Environment Manager Architecture Implementation
 
 ## Overview
 
-This document outlines the redesign of the Python Environment Manager architecture, focusing on improving separation of concerns, maintainability, and extensibility by applying SOLID principles. The main goals are:
+This document outlines the completed redesign of the Python Environment Manager architecture, focused on improving separation of concerns, maintainability, and extensibility by applying SOLID principles. The main achievements were:
 
-1. Extract command preparation logic into a dedicated method
-2. Create a separate Runner hierarchy for command execution
-3. Make a completely independent PackageManager
-4. Remove EnvManagerWithProgress class
+1. ✅ Extracted command preparation logic into a dedicated method
+2. ✅ Created a separate Runner hierarchy for command execution
+3. ✅ Made a completely independent PackageManager
+4. ✅ Removed EnvManagerWithProgress class in favor of the ProgressRunner
 
 ## Architecture Diagram
 
@@ -35,7 +35,7 @@ classDiagram
         -_original_path: List
         +_prepare_command(*cmd_args, **kwargs): Tuple
         +__init__(path, clear, env_builder, logger)
-        +get_runner(runner_type: str): IRunner
+        +get_runner(runner_type: str, **kwargs): IRunner
         +activate(): EnvManager
         +deactivate(): EnvManager
         +is_active(): bool
@@ -45,7 +45,7 @@ classDiagram
     class RunnerFactory {
         <<static>>
         +register(name: str, runner_class): void
-        +create(name: str): IRunner
+        +create(name: str, **kwargs): IRunner
         +available_runners(): List[str]
     }
 
@@ -59,7 +59,8 @@ classDiagram
     class ProgressRunner {
         -env_manager: EnvManager
         -logger: Logger
-        +__init__()
+        -inline_output: Optional[int]
+        +__init__(inline_output=None)
         +with_env(env_manager): ProgressRunner
         +run(*cmd_args, **kwargs): CompletedProcess
     }
@@ -102,7 +103,7 @@ classDiagram
 
 ## Components Diagram
 
-The following diagram shows the file structure and component organization after the refactoring:
+The file structure and component organization after the implementation:
 
 ```mermaid
 graph TB
@@ -164,7 +165,7 @@ graph TB
 
 ### Environment Class
 - Represents a Python environment with all relevant paths and properties
-- No significant changes to this class
+- No significant changes were made to this class
 
 ### IRunner Interface
 - Abstract base class defining the command execution interface
@@ -174,9 +175,9 @@ graph TB
 
 ### EnvManager Class
 - Focuses exclusively on environment lifecycle management (activation, deactivation)
-- New methods:
+- Added methods:
   - `_prepare_command(*cmd_args, **kwargs)`: Extracts command preparation logic from run method
-  - `get_runner(runner_type)`: Factory method to obtain various runner types
+  - `get_runner(runner_type, **kwargs)`: Factory method to obtain various runner types
 - Removed methods:
   - `run()`: Now handled by runners
   - `run_local()`: Now handled by LocalRunner
@@ -185,7 +186,7 @@ graph TB
 - Static factory for creating different types of runners
 - Methods:
   - `register(name, runner_class)`: Register a new runner type
-  - `create(name)`: Create a runner of the specified type
+  - `create(name, **kwargs)`: Create a runner of the specified type
   - `available_runners()`: List available runner types
 
 ### Runner Implementations
@@ -202,38 +203,38 @@ graph TB
   - `list_packages()`: List installed packages
   - `install_pkg(package)`: Context manager for temporary package installation
 
-## Implementation Plan
+## Implementation Details
 
-### Step 1: Create the `_prepare_command` Method in EnvManager
-- Extract lines 196-260 from the run method into a new method
-- Return the prepared command and modified kwargs
+### Step 1: Created the `_prepare_command` Method in EnvManager
+- Extracted command preparation logic into a new method
+- Returns the prepared command and modified kwargs
 
-### Step 2: Define the IRunner Interface
-- Create an abstract base class that defines the command execution interface
-- Include methods for environment configuration and command execution
+### Step 2: Defined the IRunner Interface
+- Created an abstract base class that defines the command execution interface
+- Included methods for environment configuration and command execution
 
-### Step 3: Implement Runner Classes
-- Create the standard Runner implementation
-- Create ProgressRunner with progress visualization features
-- Create LocalRunner for local Python execution
+### Step 3: Implemented Runner Classes
+- Created the standard Runner implementation
+- Created ProgressRunner with progress visualization features
+- Created LocalRunner for local Python execution
 
-### Step 4: Create the RunnerFactory
-- Implement static factory for creating and registering runners
+### Step 4: Created the RunnerFactory
+- Implemented static factory for creating and registering runners
 - Set up default runner registrations
 
-### Step 5: Create the PackageManager
-- Implement package management functionality
-- Create InstallPkgContextManager for temporary installations
+### Step 5: Created the PackageManager
+- Implemented package management functionality
+- Created InstallPkgContextManager for temporary installations
 
-### Step 6: Update EnvManager
-- Remove run and run_local methods
-- Add get_runner method for obtaining runners
-- Update to use fluent pattern (methods returning self)
+### Step 6: Updated EnvManager
+- Removed run and run_local methods
+- Added get_runner method for obtaining runners
+- Updated to use fluent pattern (methods returning self)
 
-### Step 7: Remove EnvManagerWithProgress
-- Remove this class as its functionality is now in ProgressRunner
+### Step 7: Removed EnvManagerWithProgress
+- Removed this class as its functionality is now in ProgressRunner
 
-## SOLID Principles Analysis
+## SOLID Principles Implementation
 
 ### Single Responsibility Principle (SRP)
 - **Environment**: Represents environment information and paths
@@ -268,28 +269,34 @@ graph TB
 # Create environment manager
 env_manager = EnvManager("path/to/venv")
 
-# Get and use a standard runner
+# Method 1: Using EnvManager's get_runner method (recommended)
+standard_runner = env_manager.get_runner("standard")
+standard_runner.run("pip", "list")
+
+# Method 2: Using RunnerFactory directly
+# Create a runner and configure it with the environment manager
 standard_runner = RunnerFactory.create("standard").with_env(env_manager)
 standard_runner.run("pip", "list")
 
-# Get and use a progress runner
-progress_runner = RunnerFactory.create("progress").with_env(env_manager)
+# Using a progress runner for long-running operations
+progress_runner = env_manager.get_runner("progress")
 progress_runner.run("pip", "install", "large-package")
 
-# Get and use a local runner
-local_runner = RunnerFactory.create("local").with_env(env_manager)
+# Using a local runner for system Python operations
+local_runner = env_manager.get_runner("local")
 local_runner.run("python", "--version")
 
-# Use package manager
+# Use package manager for advanced operations
+from env_manager import PackageManager
 pkg_manager = PackageManager(standard_runner)
 pkg_manager.install("requests")
 
 # Temporary package installation
-with PackageManager(standard_runner).install_pkg("pytest"):
+with pkg_manager.install_pkg("pytest"):
     standard_runner.run("pytest", "--version")
 ```
 
-## Benefits of New Architecture
+## Benefits of the New Architecture
 
 1. **Improved Separation of Concerns**: Each component has a clear, single responsibility
 2. **Enhanced Extensibility**: New functionality can be added without modifying existing code
@@ -297,42 +304,16 @@ with PackageManager(standard_runner).install_pkg("pytest"):
 4. **More Flexible Composition**: Components can be combined in various ways
 5. **Clearer API**: The fluent interface provides a more intuitive API
 
-## Test Case Impact Analysis
+## Test Implementation
 
-### Test Cases Requiring Updates
+All test cases were updated to use the new architecture:
 
-The architectural changes will require updates to several test cases:
+1. **Unit Tests**:
+   - Updated to test individual components (Runner, PackageManager, etc.)
+   - New tests added for RunnerFactory and different runner implementations
 
-1. **TestEnvManager**:
-   - Tests using `run` method (`test_run_with_activation_script`, `test_run_without_activation_script`, `test_run_error`)
-   - Tests using `install_pkg` method (`test_install_pkg`)
-
-2. **TestInstallPkgContextManager**:
-   - If `InstallPkgContextManager` works with `PackageManager` instead of `EnvManager`, all tests will need updates
-
-3. **Integration Tests**:
-   - `test_package_installation`
-   - `test_install_pkg_context_manager` 
-   - `test_script_execution`
-   - `test_error_handling`
-   - `test_multiple_environments`
-   - `test_environment_variables`
-   - `test_venv_to_venv_creation`
-
-### Test Update Strategy
-
-There are two approaches for updating tests:
-
-1. **Compatibility Layer Approach**:
-   - Add compatibility methods to `EnvManager` that delegate to the new components
-   - Minimal changes to existing tests
-   - Drawback: Adds technical debt and doesn't fully embrace the new architecture
-
-2. **Full Refactoring Approach**:
-   - Update all tests to use the new architecture directly
-   - Add new tests specifically for new components
-   - Cleaner, but requires more upfront work
-
-For a truly SOLID-compliant implementation, the full refactoring approach is recommended to ensure both the implementation and tests align with the new architecture.
+2. **Integration Tests**:
+   - All updated to use the runner pattern instead of direct EnvManager.run
+   - Package installation tests use PackageManager
 
 This architecture redesign provides a solid foundation for future enhancements while improving the maintainability and flexibility of the system.

@@ -57,7 +57,7 @@ class Runner(IRunner):
             
         try:
             # Prepare the command
-            shell_cmd, run_kwargs = self.env_manager._prepare_command(
+            shell_cmd, run_kwargs = self.env_manager.prepare_command(
                 *cmd_args, capture_output=capture_output, **kwargs
             )
             
