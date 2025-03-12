@@ -292,43 +292,39 @@ class TestEnvManager:
                  pytest.raises(RuntimeError, match="Failed to remove virtual environment"):
                 manager.remove()
 
-    def test_run_with_activation_script(self, mock_environment, mock_subprocess, mock_os_path, mock_env_builder):
-        """Test running a command with an activation script."""
+    def test_prepare_command_with_activation_script(self, mock_environment, mock_subprocess, mock_os_path, mock_env_builder):
+        """Test preparing a command with an activation script."""
         # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
             # Test on Windows
             with mock.patch("os.name", "nt"):
-                # Mock the subprocess.run directly
-                with mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                    manager.run("pip", "install", "package")
-                    
-                    # Verify subprocess was called correctly
-                    mock_subprocess.run.assert_called_with(
-                        mock.ANY, env=os.environ, text=True, check=True,
-                        capture_output=True, shell=True
-                    )
-                    cmd = mock_subprocess.run.call_args[0][0]
-                    assert "activate.bat" in cmd and "pip install package" in cmd
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, str)
+                assert "activate.bat" in cmd and "pip install package" in cmd
+                assert kwargs["shell"] is True
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
 
             # Test on Unix
-            mock_subprocess.run.reset_mock()
             with mock.patch("os.name", "posix"):
-                # Mock the subprocess.run directly
-                with mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                    manager.run("pip", "install", "package")
-                    
-                    # Verify subprocess was called correctly
-                    mock_subprocess.run.assert_called_with(
-                        mock.ANY, env=os.environ, text=True, check=True,
-                        capture_output=True, shell=True, executable='/bin/bash'
-                    )
-                    cmd = mock_subprocess.run.call_args[0][0]
-                    assert "source" in cmd and "activate" in cmd and "pip install package" in cmd
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, str)
+                assert "source" in cmd and "activate" in cmd and "pip install package" in cmd
+                assert kwargs["shell"] is True
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
+                assert kwargs["executable"] == '/bin/bash'
 
-    def test_run_without_activation_script(self, mock_environment, mock_subprocess, mock_env_builder):
-        """Test running a command without an activation script."""
+    def test_prepare_command_without_activation_script(self, mock_environment, mock_subprocess, mock_env_builder):
+        """Test preparing a command without an activation script."""
         # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
@@ -336,46 +332,39 @@ class TestEnvManager:
             with mock.patch("os.path.exists", return_value=False), \
                  mock.patch("sys.executable", mock_environment.python):
                 
-                # Mock the subprocess.run directly
-                with mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                    
-                    # Test python command
-                    manager.run("python", "-c", "print('hello')")
-                    
-                    # Verify command contains expected parts
-                    args, kwargs = mock_subprocess.run.call_args
-                    command = args[0]
-                    
-                    if isinstance(command, list):
-                        assert command[0] == mock_environment.python
-                        assert "-c" in command and "print('hello')" in command
-                    else:
-                        assert mock_environment.python in command
-                        assert "-c" in command and "print('hello')" in command
-                    
-                    # Verify kwargs
-                    assert all([kwargs.get('text'), kwargs.get('check'), kwargs.get('capture_output')])
-                    
-                    # Test pip command
-                    mock_subprocess.run.reset_mock()
-                    manager.run("pip", "install", "package")
-                    assert mock_subprocess.run.call_count > 0
+                # Test python command
+                cmd, kwargs = manager.prepare_command("python", "-c", "print('hello')")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, list)
+                assert cmd[0] == mock_environment.python
+                assert "-c" in cmd and "print('hello')" in cmd
+                
+                # Verify kwargs
+                assert kwargs["shell"] is False
+                assert kwargs["check"] is True
+                assert kwargs["text"] is True
+                assert kwargs["capture_output"] is True
+                
+                # Test pip command
+                cmd, kwargs = manager.prepare_command("pip", "install", "package")
+                
+                # Verify command format is correct
+                assert isinstance(cmd, list)
+                # The first element should be either the pip path in the environment bin directory
+                # or just 'pip' if it doesn't exist
+                assert cmd[0].endswith("pip") or cmd[0].endswith("pip.exe")
+                assert "install" in cmd and "package" in cmd
 
-    def test_run_error(self, mock_environment, mock_subprocess, mock_os_path, mock_env_builder):
-        """Test error handling when running a command fails."""
-        mock_subprocess.run.side_effect = subprocess.CalledProcessError(
-            1, "pip install package", stderr="Installation failed"
-        )
-        
+    def test_prepare_command_error(self, mock_environment, mock_os_path, mock_env_builder):
+        """Test error handling when preparing a command with invalid input."""
         # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
-            # Mock the subprocess.run directly
-            with mock.patch('subprocess.run', side_effect=mock_subprocess.run):
-                
-                with pytest.raises(subprocess.CalledProcessError):
-                    manager.run("pip", "install", "package")
+            # Test with empty command args
+            with pytest.raises(ValueError, match="No command provided"):
+                manager.prepare_command()
 
     def test_activate(self, mock_environment, mock_env_builder):
         """Test activating a virtual environment."""
@@ -517,32 +506,32 @@ class TestEnvManager:
                     mock_activate.assert_called_once()
                 mock_deactivate.assert_called_once()
 
-    def test_install_pkg(self, mock_environment, mock_env_builder, mock_subprocess):
-        """Test installing a package."""
+    def test_get_runner(self, mock_environment, mock_env_builder):
+        """Test getting a runner."""
         # Create manager with our mock environment
         with mock.patch('env_manager.env_manager.Environment', return_value=mock_environment):
             manager = EnvManager("/test/venv/path")
             
-            # Mock the runner and package manager
+            # Mock the runner factory
             mock_runner = mock.MagicMock()
-            mock_pkg_manager = mock.MagicMock()
-            mock_ctx_manager = mock.MagicMock()
             
-            with mock.patch("env_manager.env_manager.RunnerFactory.create", return_value=mock_runner), \
-                 mock.patch("env_manager.env_manager.PackageManager", return_value=mock_pkg_manager), \
-                 mock.patch("env_manager.package_manager.InstallPkgContextManager", return_value=mock_ctx_manager):
-                
-                # Configure mocks
+            with mock.patch("env_manager.env_manager.RunnerFactory.create", return_value=mock_runner):
+                # Configure mock
                 mock_runner.with_env.return_value = mock_runner
-                mock_pkg_manager.install_pkg.return_value = mock_ctx_manager
                 
-                # Call the method
-                result = manager.install_pkg("package")
-                
-                # Verify the correct methods were called
+                # Get a runner from the environment manager
+                runner = manager.get_runner()
+                assert runner is mock_runner
                 mock_runner.with_env.assert_called_once_with(manager)
-                mock_pkg_manager.install_pkg.assert_called_once_with("package")
-                assert result is mock_ctx_manager
+                
+                # Test with different runner type
+                mock_runner.reset_mock()
+                runner = manager.get_runner("progress")
+                mock_runner.with_env.assert_called_once_with(manager)
+                
+                # Mock factory should be called with correct arguments
+                from env_manager.runners.runner_factory import RunnerFactory
+                RunnerFactory.create.assert_called_with("progress")
 
 
 class TestInstallPkgContextManager:

@@ -10,7 +10,6 @@ import time
 from typing import Any
 
 from rich.console import Console
-from rich.spinner import Spinner
 
 from env_manager.runners.irunner import IRunner
 from env_manager import env_manager
@@ -81,7 +80,7 @@ class ProgressRunner(IRunner):
         
         try:
             # Prepare the command using the environment manager
-            shell_cmd, run_kwargs = self.env_manager._prepare_command(
+            shell_cmd, run_kwargs = self.env_manager.prepare_command(
                 *cmd_args, capture_output=capture_output, **kwargs
             )
             
@@ -132,9 +131,6 @@ class ProgressRunner(IRunner):
                             output_lines = []
                             stdout_data = []
                             stderr_data = []
-                            
-                            # Determine if we need to capture output separately
-                            capture_stdin = 'stdin' in run_kwargs
                             
                             # Filter run_kwargs to remove parameters not valid for Popen
                             popen_kwargs = {k: v for k, v in run_kwargs.items()

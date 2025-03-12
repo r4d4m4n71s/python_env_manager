@@ -174,3 +174,4 @@ cython_debug/
 .roo/system-prompt-debug
 .clinerules
 .clinerules-debug
+pypirc_sample

@@ -23,8 +23,8 @@ class TestProgressRunner:
         self.mock_env_manager = MagicMock(spec=env_manager.EnvManager)
         self.mock_env_manager.logger = MagicMock()
         
-        # Set up a return value for _prepare_command method
-        self.mock_env_manager._prepare_command.return_value = (
+        # Set up a return value for prepare_command method
+        self.mock_env_manager.prepare_command.return_value = (
             ["echo", "test"],  # shell_cmd
             {"capture_output": True}  # run_kwargs
         )
@@ -75,8 +75,8 @@ class TestProgressRunner:
         # Execute the run method
         result = self.runner.run("test", "command")
         
-        # Verify the environment manager's _prepare_command was called correctly
-        self.mock_env_manager._prepare_command.assert_called_once_with(
+        # Verify the environment manager's prepare_command was called correctly
+        self.mock_env_manager.prepare_command.assert_called_once_with(
             "test", "command", capture_output=True
         )
         
@@ -142,15 +142,15 @@ def mock_env_manager():
     mock_env = MagicMock(spec=env_manager.EnvManager)
     mock_env.logger = MagicMock()
     
-    # Setup _prepare_command to return command in format expected by subprocess.run
-    def prepare_command(*args, **kwargs):
+    # Setup prepare_command to return command in format expected by subprocess.run
+    def prepare_command_func(*args, **kwargs):
         cmd_args = list(args)
         run_kwargs = {k: v for k, v in kwargs.items()}
         if "capture_output" in run_kwargs:
             run_kwargs["capture_output"] = True
         return cmd_args, run_kwargs
     
-    mock_env._prepare_command.side_effect = prepare_command
+    mock_env.prepare_command.side_effect = prepare_command_func
     return mock_env
 
 

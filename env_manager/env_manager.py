@@ -112,9 +112,9 @@ class EnvManager:
             raise RuntimeError(f"Failed to remove virtual environment: {e}") from e
 
     
-    def _prepare_command(self, *cmd_args: str, capture_output: bool = True, **kwargs: Any) -> Tuple[Any, Dict[str, Any]]:
+    def prepare_command(self, *cmd_args: str, capture_output: bool = True, **kwargs: Any) -> Tuple[Any, Dict[str, Any]]:
         """
-        Prepare a command for execution in the environment context.
+        Prepare and return the command to be executed in this environment context.
         
         This method handles the details of command preparation, including:
         - Setting default kwargs
@@ -194,13 +194,14 @@ class EnvManager:
                 
         return shell_cmd, kwargs
         
-    def get_runner(self, runner_type: str = "standard") -> IRunner:
+    def get_runner(self, runner_type: str = "standard", **kwargs: Any) -> IRunner:
         """
         Get a runner of the specified type.
         
         Args:
             runner_type: The type of runner to get (default: "standard").
                          Available types depend on registered runners.
+            **kwargs: Additional arguments to pass to the runner constructor.
                          
         Returns:
             IRunner: A runner instance configured with this environment manager.
@@ -208,32 +209,7 @@ class EnvManager:
         Raises:
             ValueError: If the runner type is not registered.
         """
-        return RunnerFactory.create(runner_type).with_env(self)
-        
-    def run(self, *cmd_args: str, capture_output: bool = True, progressBar: bool = False, **kwargs: Any) -> Any:
-        """
-        Execute a command in the environment context.
-        
-        Args:
-            *cmd_args: Command and arguments as separate strings.
-            capture_output: Whether to capture command output (default: True).
-            progressBar: Whether to display a progress bar (default: False).
-                         Note: If True, this will use a progress runner.
-            **kwargs: Additional arguments to pass to subprocess.run.
-            
-        Returns:
-            subprocess.CompletedProcess: Result of the command execution.
-            
-        Raises:
-            ValueError: If no command is provided.
-            RuntimeError: If command execution fails.
-        """
-        if progressBar:
-            # Use a progress runner
-            return self.get_runner("progress").run(*cmd_args, capture_output=capture_output, **kwargs)
-        
-        # Use the standard runner
-        return self.get_runner("standard").run(*cmd_args, capture_output=capture_output, **kwargs)
+        return RunnerFactory.create(runner_type, **kwargs).with_env(self)
 
     def activate(self) -> 'EnvManager':
         """Activate the Python environment."""
@@ -305,30 +281,6 @@ class EnvManager:
             os.path.abspath(os.environ["VIRTUAL_ENV"]) == os.path.abspath(self.env.root)
         )
     
-    @staticmethod
-    def run_local(*cmd_args: str, capture_output: bool = True, **kwargs: Any) -> Any:
-        """
-        Execute a command using the local Python distribution.
-        
-        This static method finds the base Python executable on the system and
-        uses it to run commands, regardless of the current active environment.
-        
-        Args:
-            *cmd_args: Command and arguments as separate strings.
-            capture_output: Whether to capture command output (default: True).
-            **kwargs: Additional arguments to pass to subprocess.run.
-            
-        Returns:
-            subprocess.CompletedProcess: Result of the command execution.
-            
-        Raises:
-            ValueError: If no command is provided.
-            RuntimeError: If command execution fails.
-        """
-        # Use the LocalRunner directly
-        from env_manager.runners.local_runner import LocalRunner
-        return LocalRunner().run(*cmd_args, capture_output=capture_output, **kwargs)
-
     def __enter__(self) -> 'EnvManager':
         """Context manager entry point that activates the environment."""
         return self.activate()        
@@ -337,15 +289,3 @@ class EnvManager:
                  exc_tb: Optional[Any]) -> None:
         """Context manager exit point that deactivates the environment."""
         self.deactivate()
-
-    def install_pkg(self, package: str) -> InstallPkgContextManager:
-        """
-        Install a package in the Python environment.
-        
-        Can be used as a regular method or as a context manager:
-        - Regular: env_manager.install_pkg("package")
-        - Context: with env_manager.install_pkg("package"): ...
-        """
-        # Create a package manager with a standard runner
-        pkg_manager = PackageManager(self.get_runner("standard"))
-        return pkg_manager.install_pkg(package)

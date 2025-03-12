@@ -2,7 +2,7 @@
 Python Environment Manager
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # Import all classes and functions to make them available at package level
 from .environment import Environment
