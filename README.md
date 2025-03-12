@@ -179,6 +179,57 @@ Manages packages in virtual environments.
 - `list_packages()`: List all installed packages
 - `install_pkg(package)`: Context manager for temporary installation
 
+### 📊 Example 4: Using Progress Bars for Long Operations
+
+Visualize progress for long-running operations.
+
+```python
+from env_manager import EnvManager
+
+# Create environment
+env = EnvManager("ml_project_env")
+
+# Install a large machine learning library with progress visualization
+env.run("pip", "install", "tensorflow", progressBar=True)
+
+# Train a model with progress visualization
+env.run("python", "train_model.py", "--epochs", "100", "--batch-size", "32", progressBar=True)
+
+# Run a data processing pipeline with progress visualization
+env.run("python", "process_data.py", "--input", "large_dataset.csv", progressBar=True)
+```
+
+### 🧰 Example 5: Advanced Runner Usage
+
+Demonstrate the flexibility of the runner architecture.
+
+```python
+from env_manager import EnvManager, RunnerFactory, PackageManager
+
+# Create environment manager
+env_manager = EnvManager("path/to/venv")
+
+# Get and use a standard runner
+standard_runner = RunnerFactory.create("standard").with_env(env_manager)
+standard_runner.run("pip", "list")
+
+# Get and use a progress runner for long operations
+progress_runner = RunnerFactory.create("progress").with_env(env_manager)
+progress_runner.run("pip", "install", "large-package")
+
+# Get and use a local runner for system Python operations
+local_runner = RunnerFactory.create("local").with_env(env_manager)
+local_runner.run("python", "--version")
+
+# Use package manager for advanced package operations
+pkg_manager = PackageManager(standard_runner)
+pkg_manager.install("requests")
+
+# Temporary package installation with context manager
+with PackageManager(standard_runner).install_pkg("pytest"):
+    standard_runner.run("pytest", "--version")
+```
+
 ## 📦 Requirements
 
 - **Python**: 3.7+
