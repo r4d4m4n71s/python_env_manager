@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-env-manager"
-version = "1.0.0"
-description = "A powerful, cross-platform tool for managing Python virtual environments with a clean, intuitive API."
+version = "1.0.1"
+description = "A comprehensive tool that streamlines the creation and management of Python virtual environments."
 readme = "README.md"
 authors = [
     {name = "r4d4m4n71s"}
@@ -71,22 +71,9 @@ disallow_incomplete_defs = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "--cov=env_manager --cov-report=term-missing"
+addopts = ""
 testpaths = ["tests"]
 
-[tool.coverage.run]
-source = ["env_manager"]
-omit = ["tests/*"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "pass",
-    "raise ImportError",
-]
 
 [tool.bumpversion]
 current_version = "1.0.0"

@@ -24,20 +24,17 @@ class TestPackageManager:
     @pytest.fixture
     def package_manager(self, mock_runner):
         """Create a PackageManager instance with mock runner."""
-        return PackageManager().with_runner(mock_runner)
+        return PackageManager(mock_runner)
 
-    def test_initialization(self):
+    def test_initialization(self, mock_runner):
         """Test that PackageManager initializes correctly."""
-        pm = PackageManager()
-        assert pm.runner is None
+        pm = PackageManager(mock_runner)
+        assert pm.runner is mock_runner
 
     def test_with_runner(self, mock_runner):
         """Test with_runner method correctly configures the package manager."""
-        pm = PackageManager()
-        result = pm.with_runner(mock_runner)
-        
-        assert pm.runner == mock_runner
-        assert result == pm  # Should return self for chaining
+        pm = PackageManager(mock_runner)        
+        assert pm.runner == mock_runner        
 
     def test_install_pkg_context_manager(self, package_manager, mock_runner):
         """Test the install_pkg context manager."""
@@ -90,9 +87,11 @@ class TestPackageManager:
             assert "--no-cache-dir" in install_args
             assert "--upgrade" in install_args
 
-    def test_no_runner_error(self):
+    def test_no_runner_error(self, mock_runner):
         """Test error when no runner is configured."""
-        pm = PackageManager()
+        pm = PackageManager(mock_runner)
+        # Set runner to None to simulate no runner configured
+        pm.runner = None
         with pytest.raises(ValueError, match="Package manager not configured with a runner"):
             with pm.install_pkg("test-package"):
                 pass
@@ -145,7 +144,7 @@ class TestInstallPkgContextManager:
     @pytest.fixture
     def package_manager(self, mock_runner):
         """Create a PackageManager instance with mock runner."""
-        return PackageManager().with_runner(mock_runner)
+        return PackageManager(mock_runner)
 
     def test_context_manager_enter_exit(self, package_manager, mock_runner):
         """Test the __enter__ and __exit__ methods."""

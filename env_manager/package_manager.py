@@ -16,7 +16,7 @@ class PackageManager:
     including installation, uninstallation, and checking if packages are installed.
     """
     
-    def __init__(self, runner: Optional[IRunner] = None):
+    def __init__(self, runner: IRunner):
         """
         Initialize a PackageManager instance.
         
@@ -25,22 +25,7 @@ class PackageManager:
         """
         self.runner = runner
         self.logger = logging.getLogger(__name__)
-        
-    def with_runner(self, runner: IRunner) -> 'PackageManager':
-        """
-        Configure the package manager with a runner.
-        
-        Args:
-            runner: The runner to use for package operations.
-            
-        Returns:
-            PackageManager: The configured package manager instance (self).
-        """
-        self.runner = runner
-        if hasattr(runner, 'env_manager') and runner.env_manager:
-            self.logger = runner.env_manager.logger
-        return self
-        
+                
     def install(self, package: str, **options) -> 'PackageManager':
         """
         Install a package.

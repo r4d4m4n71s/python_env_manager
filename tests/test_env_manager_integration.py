@@ -91,7 +91,7 @@ class TestEnvManagerIntegration:
         with env_manager:
             # Get a runner and package manager
             runner = env_manager.get_runner()
-            pkg_manager = PackageManager().with_runner(runner)
+            pkg_manager = PackageManager(runner)
             
             # Use the context manager to install a package
             with pkg_manager.install_pkg("wheel"):
