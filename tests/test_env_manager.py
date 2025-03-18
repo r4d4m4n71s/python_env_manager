@@ -199,8 +199,10 @@ class TestEnvManager:
         mock_env.is_virtual = True
         mock_env.root = "/mock/env/path"
 
-        # Create EnvManager instance
-        with patch("env_manager.env_manager.Environment", return_value=mock_env):
+        # Create EnvManager instance - properly patch _create_venv to avoid filesystem operations
+        with patch("env_manager.env_manager.Environment", return_value=mock_env), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
+            
             manager = EnvManager(logger=mock_logger)
             
             # Mock is_active to return False
@@ -223,8 +225,10 @@ class TestEnvManager:
         mock_env.is_virtual = True
         mock_env.root = "/mock/env/path"
 
-        # Create EnvManager instance
-        with patch("env_manager.env_manager.Environment", return_value=mock_env):
+        # Create EnvManager instance - properly patch _create_venv
+        with patch("env_manager.env_manager.Environment", return_value=mock_env), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
+            
             manager = EnvManager(logger=mock_logger)
             
             # Mock is_active to return True initially, and deactivate to do nothing
@@ -252,7 +256,8 @@ class TestEnvManager:
         # Create EnvManager instance
         with patch("env_manager.env_manager.Environment", return_value=mock_env), \
              patch("os.path.exists") as mock_exists, \
-             patch("os.name", "posix"):  # Simulate Unix-like OS
+             patch("os.name", "posix"), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):  # Patch _create_venv
             
             # Mock activate script exists
             mock_exists.return_value = True
@@ -350,7 +355,8 @@ class TestEnvManager:
         # Create EnvManager instance
         with patch("env_manager.env_manager.Environment", return_value=mock_env), \
              patch.dict("os.environ", {}, clear=True), \
-             patch("sys.path", []):
+             patch("sys.path", []), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):  # Patch _create_venv
             
             manager = EnvManager(logger=mock_logger)
             
@@ -390,7 +396,8 @@ class TestEnvManager:
         # Create EnvManager instance
         with patch("env_manager.env_manager.Environment", return_value=mock_env), \
              patch.dict("os.environ", {"VIRTUAL_ENV": "/mock/env/path"}), \
-             patch("os.path.abspath", lambda p: p):
+             patch("os.path.abspath", lambda p: p), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
             
             manager = EnvManager()
             
@@ -400,7 +407,8 @@ class TestEnvManager:
         # Test when not active (wrong path)
         with patch("env_manager.env_manager.Environment", return_value=mock_env), \
              patch.dict("os.environ", {"VIRTUAL_ENV": "/wrong/path"}), \
-             patch("os.path.abspath", lambda p: p):
+             patch("os.path.abspath", lambda p: p), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
             
             manager = EnvManager()
             assert manager.is_active() is False
@@ -408,7 +416,8 @@ class TestEnvManager:
         # Test when not active (no VIRTUAL_ENV)
         with patch("env_manager.env_manager.Environment", return_value=mock_env), \
              patch.dict("os.environ", {}, clear=True), \
-             patch("os.path.abspath", lambda p: p):
+             patch("os.path.abspath", lambda p: p), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
             
             manager = EnvManager()
             assert manager.is_active() is False
@@ -427,7 +436,8 @@ class TestEnvManager:
         mock_env.root = "/mock/env/path"
 
         # Create EnvManager instance
-        with patch("env_manager.env_manager.Environment", return_value=mock_env):
+        with patch("env_manager.env_manager.Environment", return_value=mock_env), \
+             patch("env_manager.env_manager.EnvManager._create_venv", return_value=None):
             manager = EnvManager()
             
             # Mock activate and deactivate

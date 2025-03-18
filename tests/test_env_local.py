@@ -38,13 +38,34 @@ class TestPythonLocal:
     @patch('subprocess.run')
     def test_find_base_executable_windows(self, mock_run, mock_realpath, mock_access, mock_isfile):
         """Test finding base executable on Windows."""
+        # Create a more specific mock for os.environ.get
+        def mock_environ_get(key, default=None):
+            if key == "PATH":
+                return "C:\\Python39"
+            elif key == "ProgramFiles":
+                return "C:\\Program Files"
+            elif key == "ProgramFiles(x86)":
+                return "C:\\Program Files (x86)"
+            elif key == "LocalAppData":
+                return "C:\\Users\\User\\AppData\\Local"
+            elif key == "PYTHONHOME":
+                return "C:\\Python39"
+            else:
+                return default
+
         # Setup for Windows test
         with patch('platform.system', return_value="Windows"), \
              patch('sys.executable', 'C:\\venv\\Scripts\\python.exe'), \
-             patch('os.environ.get', return_value="C:\\Python39"):
+             patch('os.environ.get', side_effect=mock_environ_get):
             
             # Mock file checks
-            mock_isfile.return_value = True
+            def mock_isfile_side_effect(path):
+                # Allow only paths that contain both "python.exe" and "\\Python"
+                if "python.exe" in path and "\\Python" in path:
+                    return True
+                return False
+                
+            mock_isfile.side_effect = mock_isfile_side_effect
             mock_access.return_value = True
             mock_realpath.return_value = "C:\\Python39\\python.exe"
             
@@ -58,6 +79,7 @@ class TestPythonLocal:
             
             # Should find the base Python executable
             assert result is not None
+            
             # Check that a Windows path was used in the search
             windows_path_found = False
             for call in mock_isfile.call_args_list:
